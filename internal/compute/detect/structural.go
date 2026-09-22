@@ -10,6 +10,7 @@ import (
 
 var (
 	passportRe       = regexp.MustCompile(`(?i)(?:серия\s*(\d{4})\s*(?:номер\s*)?(\d{6}))|(?:паспорт.{0,20}?(\d{4})\s*(\d{6}))`)
+	passportBareRe   = regexp.MustCompile(`\b(\d{4})\s(\d{6})\b`)
 	driverLicenseRe  = regexp.MustCompile(`(?i)(?:в/у|водительск).{0,20}?(\d{2})\s?([А-ЯA-Z]{2})\s?(\d{6})`)
 	innRe            = regexp.MustCompile(`(?i)\b(\d{10}|\d{12})\b`)
 	snilsRe          = regexp.MustCompile(`\b(\d{3})-(\d{3})-(\d{3})\s?(\d{2})\b`)
@@ -19,6 +20,7 @@ var (
 	cvvRe            = regexp.MustCompile(`(?i)(?:cvv|cvc|код безопасности).{0,10}?(\d{3}|\d{4})`)
 	pinRe            = regexp.MustCompile(`(?i)(?:пин|pin).{0,15}?(\d{4})`)
 	dateRe           = regexp.MustCompile(`\b(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b`)
+	dateTextRe       = regexp.MustCompile(`(?i)\b(\d{1,2})\s+([а-яё]+)\s+(\d{4})\b`)
 	postalCodeRe     = regexp.MustCompile(`(?i)(?:индекс|почтовый код).{0,10}?(\d{6})`)
 	departmentCodeRe = regexp.MustCompile(`\b(\d{3})-(\d{3})\b`)
 )
@@ -27,10 +29,14 @@ var (
 	passportMarkerRe = regexp.MustCompile(`(?i)паспорт|серия|номер`)
 	innMarkerRe      = regexp.MustCompile(`(?i)инн`)
 	dateMarkerRe     = regexp.MustCompile(`(?i)родил|дата рождения|выдан|дата выдачи`)
+	issueMarkerRe    = regexp.MustCompile(`(?i)выдан|дата выдачи`)
 	postalMarkerRe   = regexp.MustCompile(`(?i)индекс|почтовый код|адрес`)
 	deptMarkerRe     = regexp.MustCompile(`(?i)код подразделения|выдан`)
 	driverMarkerRe   = regexp.MustCompile(`(?i)в/у|водительск`)
+	fioNearRe        = regexp.MustCompile(`(?i)[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+`)
 )
+
+var monthNames = loadMonths()
 
 // PassportDetector finds Russian passport series and number.
 type PassportDetector struct{}
@@ -44,7 +50,26 @@ func (PassportDetector) Detect(text string) []models.Span {
 		}
 		spans = append(spans, models.Span{Start: start, End: end, Type: "passport", Confidence: 1, Source: "regex"})
 	}
+	for _, m := range passportBareRe.FindAllStringSubmatchIndex(text, -1) {
+		start, end := m[0], m[1]
+		if !passportMarkerRe.MatchString(text[max(0, start-60):start]) {
+			continue
+		}
+		if overlapsAny(spans, start, end) {
+			continue
+		}
+		spans = append(spans, models.Span{Start: start, End: end, Type: "passport", Confidence: 1, Source: "regex"})
+	}
 	return spans
+}
+
+func overlapsAny(spans []models.Span, start, end int) bool {
+	for _, s := range spans {
+		if start < s.End && end > s.Start {
+			return true
+		}
+	}
+	return false
 }
 
 // DriverLicenseDetector finds driver license numbers.
@@ -70,11 +95,12 @@ func (INNDetector) Detect(text string) []models.Span {
 	var spans []models.Span
 	for _, m := range innRe.FindAllStringSubmatchIndex(text, -1) {
 		start, end := m[0], m[1]
-		if !innMarkerRe.MatchString(text[max(0, start-60):start]) {
-			continue
-		}
 		digits := text[m[2]:m[3]]
 		if !validINN(digits) {
+			continue
+		}
+		before := text[max(0, start-60):start]
+		if !innMarkerRe.MatchString(before) && !fioNearRe.MatchString(before) {
 			continue
 		}
 		spans = append(spans, models.Span{Start: start, End: end, Type: "inn", Confidence: 1, Source: "regex"})
@@ -178,9 +204,32 @@ func (DateDetector) Detect(text string) []models.Span {
 		if !validDate(day, month, year) {
 			continue
 		}
-		spans = append(spans, models.Span{Start: start, End: end, Type: "birth_date", Confidence: 1, Source: "regex"})
+		spans = append(spans, models.Span{Start: start, End: end, Type: dateType(text, start), Confidence: 1, Source: "regex"})
+	}
+	for _, m := range dateTextRe.FindAllStringSubmatchIndex(text, -1) {
+		start, end := m[0], m[1]
+		if !dateMarkerRe.MatchString(text[max(0, start-60):start]) {
+			continue
+		}
+		day, _ := strconv.Atoi(text[m[2]:m[3]])
+		month, ok := monthNames[strings.ToLower(text[m[4]:m[5]])]
+		if !ok {
+			continue
+		}
+		year, _ := strconv.Atoi(text[m[6]:m[7]])
+		if !validDate(day, month, year) {
+			continue
+		}
+		spans = append(spans, models.Span{Start: start, End: end, Type: dateType(text, start), Confidence: 1, Source: "regex"})
 	}
 	return spans
+}
+
+func dateType(text string, start int) string {
+	if issueMarkerRe.MatchString(text[max(0, start-60):start]) {
+		return "issue_date"
+	}
+	return "birth_date"
 }
 
 // PostalCodeDetector finds postal codes.
@@ -313,4 +362,20 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func loadMonths() map[string]int {
+	months := map[string]int{}
+	data, err := dictFS.ReadFile("dicts/months.txt")
+	if err != nil {
+		return months
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		months[strings.ToLower(line)] = len(months) + 1
+	}
+	return months
 }

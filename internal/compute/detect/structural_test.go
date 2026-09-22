@@ -30,6 +30,20 @@ func TestPassportNoMatch(t *testing.T) {
 	}
 }
 
+func TestPassportBareWithMarker(t *testing.T) {
+	spans := PassportDetector{}.Detect("паспорт 4509 123456")
+	if len(spans) != 1 {
+		t.Fatalf("expected passport span, got %+v", spans)
+	}
+}
+
+func TestPassportBareNoMarker(t *testing.T) {
+	spans := PassportDetector{}.Detect("4509 123456")
+	if len(spans) != 0 {
+		t.Fatalf("expected no span, got %+v", spans)
+	}
+}
+
 func TestINN10Valid(t *testing.T) {
 	spans := INNDetector{}.Detect("ИНН 7707083893")
 	if len(spans) != 1 || spans[0].Type != "inn" {
@@ -48,6 +62,20 @@ func TestINN12Valid(t *testing.T) {
 	spans := INNDetector{}.Detect("ИНН 500100732259")
 	if len(spans) != 1 {
 		t.Fatalf("expected inn span, got %+v", spans)
+	}
+}
+
+func TestINNNearFIO(t *testing.T) {
+	spans := INNDetector{}.Detect("Иванов Иван Иванович 7707083893")
+	if len(spans) != 1 || spans[0].Type != "inn" {
+		t.Fatalf("expected inn span near fio, got %+v", spans)
+	}
+}
+
+func TestINNBareNoContext(t *testing.T) {
+	spans := INNDetector{}.Detect("номер 7707083893")
+	if len(spans) != 0 {
+		t.Fatalf("expected no span, got %+v", spans)
 	}
 }
 
@@ -111,6 +139,27 @@ func TestDateDDMMYYYY(t *testing.T) {
 	spans := DateDetector{}.Detect("дата рождения 12.01.1990")
 	if len(spans) != 1 {
 		t.Fatalf("expected date span, got %+v", spans)
+	}
+}
+
+func TestDateTextMonth(t *testing.T) {
+	spans := DateDetector{}.Detect("родился 12 января 1990")
+	if len(spans) != 1 || spans[0].Type != "birth_date" {
+		t.Fatalf("expected birth_date span, got %+v", spans)
+	}
+}
+
+func TestDateIssueType(t *testing.T) {
+	spans := DateDetector{}.Detect("дата выдачи 12.01.1990")
+	if len(spans) != 1 || spans[0].Type != "issue_date" {
+		t.Fatalf("expected issue_date span, got %+v", spans)
+	}
+}
+
+func TestDateTextMonthBareNotPII(t *testing.T) {
+	spans := DateDetector{}.Detect("встреча 12 января 2024")
+	if len(spans) != 0 {
+		t.Fatalf("expected no span, got %+v", spans)
 	}
 }
 
