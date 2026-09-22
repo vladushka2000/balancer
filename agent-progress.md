@@ -39,6 +39,13 @@
   - `config_test.go` — DefaultConfig + LoadConfig из env.
 - Контракт §7 живёт в `internal/models/models.go` (замороженный пакет), совпадает буквально.
 
+### Трек 3 (mask + dicts, 2026-09-22)
+
+- `internal/compute/mask/rules.go` — 16 per-type mask-функций + `MaskRules()` (passport, fio, phone, email, card, inn, snils, date, cvv, pin, postal_code, department_code, address, driver_license, default).
+- `internal/compute/mask/masker.go` — `Masker.Apply` right-to-left, режимы `partial`/`redact`.
+- Словари в `internal/compute/detect/dicts/` (embed): famous.txt (20), org_addresses.txt (13), markers.txt (16), months.txt (12).
+- Тесты `rules_test.go` + `masker_test.go` — зелёные.
+
 ### Verification
 
 ```text
