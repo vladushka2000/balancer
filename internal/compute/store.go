@@ -102,11 +102,11 @@ func (s *Store) Lookup(ctx context.Context, payloadID, payload string) (string, 
 	if err != nil || rec == nil {
 		return "", DirectionMask, false, err
 	}
-	if payload == rec.Original {
-		return rec.Mask, DirectionMask, true, nil
-	}
 	if payload == rec.Mask {
 		return rec.Original, DirectionDemask, true, nil
+	}
+	if payload == rec.Original {
+		return rec.Mask, DirectionMask, true, nil
 	}
 	return "", DirectionMask, false, nil
 }

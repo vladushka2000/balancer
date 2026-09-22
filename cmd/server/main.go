@@ -56,7 +56,11 @@ func main() {
 	logger := compute.InitLogging()
 	slog.SetDefault(logger)
 
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr(cfg.computeCfg.RedisURL)})
+	rdb := redis.NewClient(&redis.Options{
+		Addr:         redisAddr(cfg.computeCfg.RedisURL),
+		PoolSize:     256,
+		MinIdleConns: 16,
+	})
 	ctx := context.Background()
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Error("redis unavailable", "error", err)

@@ -22,6 +22,7 @@ Gate (must):
 import argparse
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -60,21 +61,28 @@ def check_roundtrip(url: str, cases: list[tuple[str, str]]) -> tuple[int, int]:
 
 
 def check_no_pii(url: str, cases: list[tuple[str, str]]) -> tuple[int, int]:
-    """Проверяет, что FP-кейсы не маскируются, и возвращает (ok, total)."""
+    """Проверяет, что FP-кейсы не маскируются (mask == original), и возвращает (ok, total).
+
+    Каждый кейс прогоняется как mask→demask, чтобы не нарушать pair invariant
+    (mask_ok == demask_ok): маска без демаски раздувала бы mask_ok.
+    """
     ok = 0
     for payload, payload_id in cases:
-        resp = post_process(url, payload, payload_id)
-        if resp.get("result") == payload:
+        success, mask, _ = mask_and_demask(url, payload, payload_id)
+        if success and mask == payload:
             ok += 1
     return ok, len(cases)
 
 
 def check_masked(url: str, cases: list[tuple[str, str]]) -> tuple[int, int]:
-    """Проверяет, что ПД-кейсы маскируются, и возвращает (ok, total)."""
+    """Проверяет, что ПД-кейсы маскируются (mask != original), и возвращает (ok, total).
+
+    Каждый кейс прогоняется как mask→demask, чтобы не нарушать pair invariant.
+    """
     ok = 0
     for payload, payload_id in cases:
-        resp = post_process(url, payload, payload_id)
-        if resp.get("result") != payload:
+        success, mask, _ = mask_and_demask(url, payload, payload_id)
+        if success and mask != payload:
             ok += 1
     return ok, len(cases)
 
@@ -103,34 +111,37 @@ def main() -> int:
     args = parser.parse_args()
     url = args.url.rstrip("/")
 
+    run_id = str(int(time.time() * 1000))
+
     pii_cases = [
-        ("Клиент Иванов Иван Иванович, паспорт 4509 123456", "pii-1"),
-        ("Дата рождения 12.01.1990", "pii-2"),
-        ("Место рождения: Москва", "pii-3"),
-        ("Гражданство: Российская Федерация", "pii-4"),
-        ("Выдан УФМС России, код подразделения 123-456", "pii-5"),
-        ("Дата выдачи 15.03.2015", "pii-6"),
-        ("Водительское удостоверение 77 АА 123456", "pii-7"),
-        ("Адрес: Москва, ул. Тверская, д. 1", "pii-8"),
-        ("Email ivan.ivanov@bank.ru", "pii-9"),
-        ("Телефон +7 912 345-67-89", "pii-10"),
-        ("ИНН 7707083893", "pii-11"),
-        ("Карта 4111 1111 1111 1111", "pii-12"),
-        ("CVV 123", "pii-13"),
-        ("Держатель карты Иванов Иван Иванович", "pii-15"),
-        ("ПАСПОРТ 4509 123456", "pii-16"),
-        ("Карта 4111 1111 1111 1111, пин-код 1234", "pii-17"),
+        ("Клиент Иванов Иван Иванович, паспорт 4509 123456", f"pii-{run_id}-1"),
+        ("Дата рождения 12.01.1990", f"pii-{run_id}-2"),
+        ("Место рождения: Москва", f"pii-{run_id}-3"),
+        ("Гражданство: Российская Федерация", f"pii-{run_id}-4"),
+        ("Выдан УФМС России, код подразделения 123-456", f"pii-{run_id}-5"),
+        ("Дата выдачи 15.03.2015", f"pii-{run_id}-6"),
+        ("Водительское удостоверение 77 АА 123456", f"pii-{run_id}-7"),
+        ("Адрес: Москва, ул. Тверская, д. 1", f"pii-{run_id}-8"),
+        ("Email ivan.ivanov@bank.ru", f"pii-{run_id}-9"),
+        ("Телефон +7 912 345-67-89", f"pii-{run_id}-10"),
+        ("ИНН 7707083893", f"pii-{run_id}-11"),
+        ("Карта 4111 1111 1111 1111", f"pii-{run_id}-12"),
+        ("CVV 123", f"pii-{run_id}-13"),
+        ("Держатель карты Иванов Иван Иванович", f"pii-{run_id}-15"),
+        ("ПАСПОРТ 4509 123456", f"pii-{run_id}-16"),
+        ("Карта 4111 1111 1111 1111, пин-код 1234", f"pii-{run_id}-17"),
     ]
     fp_cases = [
-        ("Пушкин", "fp-1"),
-        ("Отделение банка по адресу: Москва, ул. Тверская, д. 1", "fp-2"),
-        ("Встреча 12.01.2024", "fp-3"),
-        ("ПИН-код 1234", "fp-4"),
+        ("Пушкин", f"fp-{run_id}-1"),
+        ("Отделение банка по адресу: Москва, ул. Тверская, д. 1", f"fp-{run_id}-2"),
+        ("Встреча 12.01.2024", f"fp-{run_id}-3"),
+        ("ПИН-код 1234", f"fp-{run_id}-4"),
     ]
 
     masked_ok, masked_total = check_masked(url, pii_cases)
     roundtrip_ok, roundtrip_total = check_roundtrip(url, pii_cases)
     fp_ok, fp_total = check_no_pii(url, fp_cases)
+    time.sleep(2.5)
     pair_ok, pair_msg = check_pair_invariant(url)
 
     print(f"masked: {masked_ok}/{masked_total}")

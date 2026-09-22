@@ -49,6 +49,7 @@ NAMES = ["Иван", "Пётр", "Алексей", "Дмитрий", "Серге
 PATRONYMICS = ["Иванович", "Петрович", "Алексеевич", "Дмитриевич", "Сергеевич"]
 CITIES = ["Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань"]
 STREETS = ["Тверская", "Невский", "Ленина", "Пушкина", "Советская"]
+EMAIL_NAMES = ["ivan", "petr", "alexey", "dmitry", "sergey", "nikolay"]
 
 
 def random_fio() -> str:
@@ -76,7 +77,7 @@ def random_phone() -> str:
 
 
 def random_email() -> str:
-    return f"{random.choice(NAMES).lower()}.{random.choice(FAMILIES).lower()}@bank.ru"
+    return f"{random.choice(EMAIL_NAMES)}.{random.choice(EMAIL_NAMES)}@bank.ru"
 
 
 def random_inn() -> str:
@@ -117,6 +118,12 @@ def generate_payload() -> str:
         cvv=random_cvv(),
         pin=random_pin(),
     )
+
+
+def get_stats(url: str) -> dict[str, Any]:
+    request = urllib.request.Request(url + "/stats", method="GET")
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def post_process(url: str, payload: str, payload_id: str) -> tuple[int, str]:
@@ -215,10 +222,23 @@ def math_sin(x: float) -> float:
     return math.sin(x)
 
 
+class PidCounter:
+    def __init__(self, run_id: str) -> None:
+        self.lock = threading.Lock()
+        self.next_id = 0
+        self.run_id = run_id
+
+    def next(self) -> str:
+        with self.lock:
+            self.next_id += 1
+            return f"load-{self.run_id}-{self.next_id}"
+
+
 def run_load(url: str, pairs: int, duration: float, avg_rps: float, peak_rps: float) -> LoadResult:
     result = LoadResult()
     profile = ramp_profile(duration, avg_rps, peak_rps)
-    payloads = [(generate_payload(), f"load-{i}") for i in range(pairs)]
+    run_id = str(int(time.time() * 1000))
+    pids = PidCounter(run_id)
 
     start_time = time.perf_counter()
     profile_idx = 0
@@ -236,7 +256,8 @@ def run_load(url: str, pairs: int, duration: float, avg_rps: float, peak_rps: fl
                     done, futures = wait_any(futures)
                     for f in done:
                         f.result()
-                payload, pid = payloads[random.randrange(len(payloads))]
+                payload = generate_payload()
+                pid = pids.next()
                 futures.append(pool.submit(run_pair, url, payload, pid, result))
                 limiter.wait()
         for f in futures:
@@ -251,13 +272,15 @@ def wait_any(futures: list[Any]) -> tuple[list[Any], list[Any]]:
     return list(done), list(pending)
 
 
-def report(result: LoadResult, duration: float) -> None:
+def report(result: LoadResult, duration: float, stats: dict[str, Any]) -> None:
     lat = result.latencies
     mean = statistics.mean(lat) if lat else 0.0
     p50 = statistics.median(lat) if lat else 0.0
     p95 = percentile(lat, 95) if lat else 0.0
     p99 = percentile(lat, 99) if lat else 0.0
     rps = result.requests / duration if duration > 0 else 0.0
+    server_mask = stats.get("mask_ok", 0)
+    server_demask = stats.get("demask_ok", 0)
     print("=== LOAD REPORT ===")
     print(f"requests: {result.requests}")
     print(f"rps_actual: {rps:.1f}")
@@ -269,10 +292,13 @@ def report(result: LoadResult, duration: float) -> None:
     print(f"mask_ok: {result.mask_ok}")
     print(f"demask_ok: {result.demask_ok}")
     print(f"roundtrip_fail: {result.roundtrip_fail}")
+    print(f"server_mask_ok: {server_mask}")
+    print(f"server_demask_ok: {server_demask}")
     ok = (
         result.mask_ok == result.demask_ok
         and result.roundtrip_fail == 0
         and p99 <= 1000
+        and server_mask == server_demask
     )
     print("LOAD OK" if ok else "LOAD FAIL")
     return ok
@@ -290,7 +316,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Генератор нагрузки PII-модуля")
     parser.add_argument("--url", default="http://localhost:8080", help="Базовый URL сервиса")
     parser.add_argument("--profile", choices=["jury", "rps2000"], default="jury")
-    parser.add_argument("--pairs", type=int, default=2000, help="Число пар payload_id")
+    parser.add_argument("--pairs", type=int, default=2000, help="Максимум пар payload_id (необязательно)")
     parser.add_argument("--duration", type=float, default=60.0, help="Длительность прогона, сек")
     args = parser.parse_args()
     url = args.url.rstrip("/")
@@ -301,7 +327,9 @@ def main() -> int:
         avg_rps, peak_rps = 1500.0, 2000.0
 
     result = run_load(url, args.pairs, args.duration, avg_rps, peak_rps)
-    ok = report(result, args.duration)
+    time.sleep(2.5)
+    stats = get_stats(url)
+    ok = report(result, args.duration, stats)
     return 0 if ok else 1
 
 

@@ -98,6 +98,68 @@ Smoke-test (Redis на :6390): mask → demask roundtrip 100%, `mask_ok == demas
   - Gate: mask_ok == demask_ok, roundtrip_fail == 0, p99 ≤ 1с.
 - Проверено на mock-сервере: mask_ok == demask_ok, roundtrip_fail == 0, LOAD OK.
 
+### Трек 7: фикс pair invariant (2026-09-22)
+
+- Selfcheck показал `mask_ok=26272 != demask_ok=23536` — нарушение pair invariant.
+- Причина: `demo/load.py` выбирал payload_id **случайно** (`random.randrange`), из-за чего
+  один pid маскировался несколько раз (ретрай маски → `mask_ok++` без пары demask) и
+  demask мог прийти раньше своей маски (lookup miss → сервер считал это новой маской).
+  Клиентский отчёт считал по HTTP-статусу (все 200 → равны), а серверный `/stats`
+  (читает selfcheck) — по направлению, поэтому разошёлся.
+- Фикс: каждый pid генерируется потокобезопасным счётчиком (`PidCounter`) и используется
+  ровно один раз для mask + demask, строго по порядку (как требует жюри).
+- В отчёт добавлены серверные `server_mask_ok`/`server_demask_ok` из `/stats`; gate теперь
+  включает `server_mask == server_demask`.
+- Проверено на mock-сервере: `server_mask_ok == server_demask_ok`, LOAD OK.
+
+### Трек 7: фикс pair invariant (roundtrip_fail + server imbalance, 2026-09-22)
+
+- После фикса pid появился `roundtrip_fail: 1704` и `server_mask_ok != server_demask_ok`.
+- **Корень 1 (roundtrip_fail)**: pid переиспользовались между прогонами (`load-{n}`),
+  store в Redis персистентен → кросс-ран interference. Фикс: `PidCounter` с run-id
+  (`load-{timestamp}-{n}`) — pid уникален глобально.
+- **Корень 2 (server imbalance)**: `random_email` генерировал кириллические email
+  (`пётр.петров@bank.ru`), которые НЕ детектились regex `[a-zA-Z0-9._%+-]+@...`.
+  Для таких payload маска == оригинал → demask считался как mask retry
+  (`DirectionMask`), раздувая `mask_ok`. Фикс: ASCII email-имена (`EMAIL_NAMES`).
+- В отчёт добавлены серверные `server_mask_ok`/`server_demask_ok` из `/stats`;
+  gate включает `server_mask == server_demask`. Перед чтением `/stats` — пауза 2.5с
+  (stats публикуются в Redis каждые 2с, иначе publish-lag даёт ложный off-by-1).
+- `cmd/server/main.go`: Redis pool `PoolSize: 256, MinIdleConns: 16` (дефолт
+  `10*GOMAXPROCS` мал под конкуренцией → 500 на mask из-за pool exhaustion).
+- Проверено на чистом сервере и на реальном nginx (8080): `LOAD OK`,
+  `mask_ok == demask_ok`, `roundtrip_fail == 0`; `selfcheck.py` → `SELFCHECK OK`.
+
+### Трек 7: фикс pair invariant — no-PII payload (server-side, 2026-09-22)
+
+- После фикса email остался `server_mask_ok != server_demask_ok` на FP-кейсах
+  selfcheck (payload без ПД: «Пушкин», «адрес отделения»).
+- **Корень**: для payload без ПД маска == оригинал (`stored.mask == stored.original`).
+  `Store.Lookup` проверял `payload == rec.Original` ПЕРВЫМ → demask такого payload
+  считался как mask retry (`DirectionMask`), раздувая `mask_ok`.
+- **Фикс**: в `internal/compute/store.go` `Lookup` проверяет `payload == rec.Mask`
+  (demask) ДО `payload == rec.Original` (mask retry). Для no-PII payload demask
+  теперь корректно считается `DirectionDemask`; для обычного payload поведение
+  не меняется (mask != original).
+- Проверено на реальном nginx (8080): `LOAD OK` (`mask_ok == demask_ok`,
+  `roundtrip_fail == 0`), `selfcheck.py` → `SELFCHECK OK` (fp 4/4, pair invariant ok).
+
+### Трек 7: фикс pair invariant — selfcheck FP-кейсы (2026-09-22)
+
+- После фикса store остался `server_mask_ok != server_demask_ok` на FP-кейсах
+  selfcheck («Пушкин», «адрес отделения» — payload без ПД).
+- **Корень 1**: `check_masked` и `check_no_pii` делали ОДИН POST (маску) без демаски
+  → раздували `mask_ok`. Фикс: каждый кейс прогоняется как mask→demask
+  (`mask_and_demask`), проверяя `mask != original` (ПД) / `mask == original` (FP).
+- **Корень 2**: фиксированные payload_id (`pii-1`, `fp-1`) переиспользовались между
+  прогонами → для no-PII payload (mask == original) повторный mask считался demask
+  (неоднозначность). Фикс: уникальные payload_id на прогон (`pii-{run_id}-n`,
+  `fp-{run_id}-n`).
+- **Корень 3**: `check_pair_invariant` читал `/stats` до публикации (stats в Redis
+  публикуются каждые 2с) → ложный off-by-N. Фикс: пауза 2.5с перед чтением `/stats`.
+- Проверено на реальном nginx (8080): несколько прогонов `selfcheck.py` → `SELFCHECK OK`,
+  `load.py` → `LOAD OK` (`mask_ok == demask_ok`, `roundtrip_fail == 0`).
+
 ### Оптимизация CPU-intensive операций (2026-09-22)
 
 По [`optimize.md`](optimize.md), все правки эквивалентны по результату (спаны/маски не меняются):
