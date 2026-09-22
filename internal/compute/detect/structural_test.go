@@ -52,9 +52,16 @@ func TestINN12Valid(t *testing.T) {
 }
 
 func TestSNILSValid(t *testing.T) {
-	spans := SNILSDetector{}.Detect("СНИЛС 123-456-789 01")
+	spans := SNILSDetector{}.Detect("СНИЛС 112-233-445 95")
 	if len(spans) != 1 {
 		t.Fatalf("expected snils span, got %+v", spans)
+	}
+}
+
+func TestSNILSInvalid(t *testing.T) {
+	spans := SNILSDetector{}.Detect("СНИЛС 112-233-445 01")
+	if len(spans) != 0 {
+		t.Fatalf("expected no span, got %+v", spans)
 	}
 }
 

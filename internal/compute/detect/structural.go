@@ -279,7 +279,18 @@ func innCheck(digits string, weights []int) int {
 }
 
 func validSNILS(digits string) bool {
-	return len(digits) == 11
+	if len(digits) != 11 {
+		return false
+	}
+	sum := 0
+	for i := 0; i < 9; i++ {
+		sum += int(digits[i]-'0') * (9 - i)
+	}
+	control := sum % 101
+	if control == 100 {
+		control = 0
+	}
+	return control == int(digits[9]-'0')*10+int(digits[10]-'0')
 }
 
 func validDate(day, month, year int) bool {
