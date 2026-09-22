@@ -30,6 +30,15 @@
   - `internal/compute` — detect (structural/ner/context/merge), mask (rules/masker), store (LRU+TTL+Redis write-through, AES-GCM), repo, semaphore, stats, pipeline, processor.
   - `cmd/server` — HTTP: `/process`, `/app/health`, `/systems`, `/stats`, `/clear`.
 
+### Трек 0B (compute-фундамент, 2026-09-22)
+
+- `internal/compute` уже реализован (models/config/keys/store/ratelimit/pipeline/processor/stats/repo/logging + detect/mask).
+- Добавлены недостающие тесты трека 0B:
+  - `keys_test.go` — corrKey/systemKey/systemsSet/configEpochKey.
+  - `ratelimit_test.go` — Semaphore capacity/wait-timeout/release.
+  - `config_test.go` — DefaultConfig + LoadConfig из env.
+- Контракт §7 живёт в `internal/models/models.go` (замороженный пакет), совпадает буквально.
+
 ### Verification
 
 ```text
