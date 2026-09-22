@@ -7,11 +7,11 @@ for agents: **one writer per path**. Parallel = **git worktree per agent**.
 
 | Track | Owner | Write globs | Read-only OK | Never touch |
 |---|---|---|---|---|
-| A | go-api | `api/**` | `compute/src/models.rs` (contract shape) | `compute/**`, `docker-compose.yml`, `feature_list.json` |
-| B | rust-detect | `compute/src/detect/**`, `compute/tests/test_structural.rs`, `test_ner.rs`, `test_context.rs`, `test_merge.rs` | `compute/src/models.rs`, `pipeline.rs` (signatures) | `api/**`, `compute/src/mask/**`, `store.rs` |
-| C | rust-mask | `compute/src/mask/**`, `compute/src/dicts/**`, `compute/tests/test_mask*.rs` | detect `Span` type | `api/**`, `compute/src/detect/**` |
-| D | rust-store | `compute/src/store.rs`, `keys.rs`, encrypt helpers, `compute/tests/test_store.rs` | `models.rs` CorrRecord | `api/**`, `detect/**`, `mask/**` |
-| E | glue | `docker-compose.yml`, `compute/src/pipeline.rs`, `routers/**`, `stats.rs`, `main.rs`, `demo/**`, `scripts/**`, `README.md`, `feature_list.json`, DTO sync | everything | starts **after** A–D PRs |
+| A | go-api | `internal/api/**`, `cmd/server/**` | `internal/models/models.go` (contract shape) | `internal/compute/**`, `docker-compose.yml`, `feature_list.json` |
+| B | go-detect | `internal/compute/detect/**`, related tests | `internal/models/models.go`, `pipeline.go` (signatures) | `internal/api/**`, `internal/compute/mask/**`, `store.go` |
+| C | go-mask | `internal/compute/mask/**`, `internal/compute/detect/dicts/**`, related tests | detect `Span` type | `internal/api/**`, `internal/compute/detect/**` |
+| D | go-store | `internal/compute/store.go`, `keys.go`, `crypto.go`, encrypt helpers, related tests | `models.go` CorrRecord | `internal/api/**`, `detect/**`, `mask/**` |
+| E | glue | `docker-compose.yml`, `internal/compute/pipeline.go`, `processor.go`, `stats.go`, `cmd/server/main.go`, `demo/**`, `scripts/**`, `README.md`, `feature_list.json`, DTO sync | everything | starts **after** A–D PRs |
 
 ## Rules
 

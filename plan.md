@@ -4,6 +4,11 @@
 [`balancer.md`](balancer.md) (практики), [`hack.md`](hack.md) (детали дня).
 Харнес: [`AGENTS.md`](AGENTS.md), ownership: [`docs/agents/OWNERSHIP.md`](docs/agents/OWNERSHIP.md).
 
+**Стек (зафиксировано):** весь runtime на **Go**. Rust `compute/` снят и
+переписан. Один Go-модуль, два пакета: `internal/api` (дверь) + `internal/compute`
+(движок), вызовы функций без HTTP. SSE-шлюз (`gateway`) **не нужен** — контракт
+синхронный, чекер бьёт один `POST /process`.
+
 ---
 
 ## 0. Цель и инварианты
@@ -20,33 +25,36 @@
 | **No 429 on demask** | Lookup/retry **без** семафора детекции |
 | **No PII in telemetry** | Логи/метрики: types, offsets, lengths, `payload_id`, timings |
 | **Contract frozen** | Тела `ProcessRequest` / `ProcessResponse` не менять |
-| **Zip gate** | Только исходники; clippy/vet чистые |
+| **Zip gate** | Только исходники; `gofmt` + `go vet` чистые |
+| **Go-only runtime** | `internal/api` + `internal/compute` — Go. Без Rust на hot path |
 
 ---
 
 ## 1. Архитектура файлов
 
 ```
-api/                     # создать — Go door
-  main.go
-  internal/{config,handler,middleware,forwarder,ratelimit,models}/
-compute/                 # уже есть — Rust engine
-  src/{detect,mask,store,pipeline,routers,stats,...}
-docker-compose.yml       # redis + api + compute
+cmd/server/               # HTTP: POST /process, /app/health, admin
+internal/api/             # Go door: validate, rate limit, вызов compute
+internal/compute/         # Go engine: detect, mask, store, pipeline, stats
+internal/models/          # Замороженный контракт (DTO)
+docker-compose.yml        # redis + server
 demo/{selfcheck,load}.py
 scripts/pack.sh
-README.md                # ≤5 предложений
+README.md                 # ≤5 предложений
 ```
+
+api ↔ compute — **на уровне пакетов** (прямой вызов функций), не HTTP.
 
 ```mermaid
 flowchart LR
-  Checker["AlfaSonar"] -->|"POST /process"| Api["api Go"]
-  Api -->|"validate 429 forward"| Compute["compute Rust"]
+  Checker["AlfaSonar"] -->|"POST /process"| Server["cmd/server"]
+  Server -->|"api.Door.Process"| Api["internal/api"]
+  Api -->|"compute.Processor.Process"| Compute["internal/compute"]
   Compute --> Detect["regex checksum context"]
   Compute --> Store["Redis vault"]
   Detect --> Mask["etalon partial"]
   Mask --> Store
-  Store -->|"put then 200"| Api
+  Store -->|"put then 200"| Server
 ```
 
 ---
@@ -55,13 +63,14 @@ flowchart LR
 
 | Шаг | Что | Done when |
 |---|---|---|
-| M1 | Контракт `/process` + health на api и compute | curl 200; 422 на пустое тело |
+| M0 | Решение Go-only: каркас `internal/api` + `internal/compute`; Rust не на hot path | `go build ./...` |
+| M1 | Контракт `/process` + health | curl 200; 422 на пустое тело |
 | M2 | Типы ПД из ТЗ + регистр + «серия/номер» + checksums | unit tests green |
 | M3 | Etalon-style partial masks | selfcheck Levenshtein ≤ порога на фикстурах |
 | M4 | Vault + roundtrip 100%; put до 200 | demask == original; pair counters |
 | M5 | FP: Пушкин / отделение; дата только с маркером; PIN iff card | context tests |
 | M6 | Latency mean/p50/p95/p99 на разгоне 330→1000; limiter ~1500 | load report; 429≈0 на пике |
-| M7 | Логи без ПД; README ≤5; zip + clippy/vet | pack.sh dry-run; `clippy -D warnings` |
+| M7 | Логи без ПД; README ≤5; zip + gofmt/vet | pack.sh dry-run; `go vet ./...` |
 
 **Plus (после must):** FPE FF1, synthetic, RPS 2000, другие УЛ, admin UX.
 
@@ -73,10 +82,10 @@ flowchart LR
 
 | Track | Owner | Write | Never |
 |---|---|---|---|
-| A | go-api | `api/**` | `compute/**` |
-| B | rust-detect | `compute/src/detect/**`, related tests | `api/**`, `mask/**`, `store.rs` |
-| C | rust-mask | `compute/src/mask/**`, `dicts/**` | `api/**`, `detect/**` |
-| D | rust-store | `store.rs`, `keys.rs`, redis encrypt glue | `api/**`, `detect/**` |
+| A | go-api | `internal/api/**`, `cmd/server/**` | `internal/compute/**` |
+| B | go-detect | `internal/compute/detect/**`, related tests | `internal/api/**`, `mask/**`, `store.go` |
+| C | go-mask | `internal/compute/mask/**`, `dicts/**` | `internal/api/**`, `detect/**` |
+| D | go-store | `store.go`, `keys.go`, `crypto.go`, redis encrypt glue | `internal/api/**`, `detect/**` |
 | E | glue | compose, pipeline wiring, `/stats`, zip, README, selfcheck/load | starts after A–D |
 
 Подробности: [`docs/agents/OWNERSHIP.md`](docs/agents/OWNERSHIP.md).
@@ -85,19 +94,19 @@ flowchart LR
 
 ## 4. Go api (track A)
 
-1. `POST /process`: decode → validate non-empty → rate limit → forward.
+1. `POST /process`: decode → validate non-empty → rate limit → compute.
 2. Token bucket default **1500**; `429` + `Retry-After: 1`.
-3. Transport: clone DefaultTransport, `MaxIdleConnsPerHost=32`, forward timeout ~9s.
-4. Map errors: connect → 502, timeout → 504, compute 429 → passthrough.
+3. Вызов `compute.Processor.Process` — прямой вызов функции, без HTTP.
+4. Map errors: validation → 422, rate limit → 429, compute → 500.
 5. `GET /app/health` → 200.
 6. Logs: method, path, status, duration, `payload_id` — **не** payload.
-7. Tests: 200/422/429/502/504; no payload in logs.
+7. Tests: 200/422/429; no payload in logs.
 
-Стек: Go 1.22+, chi v5, stdlib. Без Redis в api.
+Стек: Go 1.22+, stdlib `net/http`, `log/slog`. Без Redis в api.
 
 ---
 
-## 5. Rust compute
+## 5. Go compute
 
 ### 5.1 Detect (track B)
 
@@ -105,7 +114,7 @@ flowchart LR
 - NER/dict: FIO, address components, birth place, issuing org, citizenship, cardholder.
 - Context: window + markers; famous.txt / org_addresses.txt.
 - Merge: prefer regex; PIN without card → drop.
-- Engine: `regex` case-insensitive; compile at startup; chunks for NER (~4k/200).
+- Engine: `regexp` case-insensitive; compile at startup; chunks for NER (~4k/200).
 
 ### 5.2 Mask (track C)
 
@@ -126,6 +135,12 @@ flowchart LR
 
 `POST/GET /systems`, `GET /stats`, `GET /health`, `POST /clear`.
 `/process` uses default-policy (`types=all`, `partial`, demask on).
+
+### 5.5 Миграция с Rust
+
+1. Rust `compute/` удалён; вся логика переписана на Go в `internal/compute`.
+2. Новые фичи — сразу в Go; Rust-дерева в репо нет.
+3. Zip **не** включает `target/`, `.rs` — только Go-исходники.
 
 ---
 
@@ -160,9 +175,7 @@ Zip исходников без `target/`, `.git`, `venv`, бинарников,
 
 | Var | Default | Где |
 |---|---|---|
-| `PII_COMPUTE_URL` | — | api |
 | `PII_RPS_TARGET` | 1500 | api |
-| `PII_FORWARD_TIMEOUT_SEC` | 9 | api |
 | `REDIS_URL` | `redis://localhost:6379/0` | compute |
 | `PII_CORR_TTL_SEC` | 86400 | compute |
 | `PII_MAX_CONCURRENT` | num_cpus | compute |
@@ -173,6 +186,7 @@ Zip исходников без `target/`, `.git`, `venv`, бинарников,
 
 ## 8. Критерии сдачи
 
+- [ ] Весь hot path на **Go** (`internal/api` + `internal/compute`); Rust не в compose сдачи.
 - [ ] `POST /process` по контракту; идемпотентен.
 - [ ] Forward: маски в стиле эталона; selfcheck Levenshtein ок.
 - [ ] Reverse: 100% original; `mask_ok == demask_ok`.
@@ -181,7 +195,7 @@ Zip исходников без `target/`, `.git`, `venv`, бинарников,
 - [ ] Latency mean/p50/p95/p99 на разгоне; 429≈0 на пике 1000.
 - [ ] Demask не 429; put до 200.
 - [ ] ПД не в логах; store encrypted.
-- [ ] Zip + clippy/vet; README ≤5 предложений.
-- [ ] `docker compose up --build` поднимает redis+api+compute.
+- [ ] Zip + `go vet`; README ≤5 предложений.
+- [ ] `docker compose up --build` поднимает redis+server.
 
 Статус фич — [`feature_list.json`](feature_list.json). Прогресс — [`agent-progress.md`](agent-progress.md).

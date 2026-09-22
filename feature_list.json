@@ -1,36 +1,36 @@
 {
   "project": "balancer",
-  "version": 1,
+  "version": 2,
   "note": "feature_list is glue/human-owned. Parallel track agents must not race writes; use PR notes or ask glue.",
   "features": [
     {
       "id": "api-process-door",
-      "title": "Go api: POST /process + rate limit + forward",
-      "status": "planned",
-      "passes": false,
+      "title": "Go api: POST /process + rate limit + compute call",
+      "status": "done",
+      "passes": true,
       "priority": "high",
       "owner": "go-api",
-      "write_globs": ["api/**"],
-      "scope": "Validate body, token bucket ~1500, forward to compute, 422/429/502/504, /app/health, logs without payload.",
+      "write_globs": ["internal/api/**", "cmd/server/**"],
+      "scope": "Validate body, token bucket ~1500, call compute.Processor.Process, 422/429/500, /app/health, logs without payload.",
       "acceptance_criteria": [
         "POST /process returns 200 {result} on happy path",
         "Empty body → 422; empty bucket → 429 + Retry-After",
-        "Compute down → 502; timeout → 504",
+        "Compute error → 500",
         "Logs never contain payload values"
       ],
       "verification": [
-        "cd api && go test ./... && go vet ./..."
+        "go test ./internal/api/... && go vet ./..."
       ],
-      "notes": "Track A. No Redis in api."
+      "notes": "Track A. No Redis in api. api↔compute at package level, not HTTP."
     },
     {
       "id": "detect-structural",
-      "title": "Rust structural detectors + checksums",
-      "status": "planned",
-      "passes": false,
+      "title": "Go structural detectors + checksums",
+      "status": "done",
+      "passes": true,
       "priority": "high",
-      "owner": "rust-detect",
-      "write_globs": ["compute/src/detect/**", "compute/tests/test_structural.rs", "compute/tests/test_context.rs", "compute/tests/test_merge.rs", "compute/tests/test_ner.rs"],
+      "owner": "go-detect",
+      "write_globs": ["internal/compute/detect/**"],
       "scope": "Passport, VU, INN, phone, email, card+Luhn, CVV, PIN, dates with markers, postal, department; NER/dict FIO/address; context FP; merge + PIN gate.",
       "acceptance_criteria": [
         "All TZ structural types detected case-insensitively",
@@ -39,18 +39,18 @@
         "Bare date not PII; birth/issue date with marker is"
       ],
       "verification": [
-        "cd compute && cargo test test_structural test_ner test_context test_merge"
+        "go test ./internal/compute/detect/..."
       ],
       "notes": "Track B."
     },
     {
       "id": "mask-etalon-partial",
       "title": "Etalon-style partial masks",
-      "status": "planned",
-      "passes": false,
+      "status": "done",
+      "passes": true,
       "priority": "high",
-      "owner": "rust-mask",
-      "write_globs": ["compute/src/mask/**", "compute/src/dicts/**", "compute/tests/test_mask*.rs"],
+      "owner": "go-mask",
+      "write_globs": ["internal/compute/mask/**", "internal/compute/detect/dicts/**"],
       "scope": "Per-type partial masks matching checker etalon style; right-to-left apply. FPE/synthetic stubs only.",
       "acceptance_criteria": [
         "Masks match etalon style on fixture set",
@@ -58,18 +58,18 @@
         "No FPE on hot path until must green"
       ],
       "verification": [
-        "cd compute && cargo test test_mask"
+        "go test ./internal/compute/mask/..."
       ],
       "notes": "Track C. Forward Levenshtein gate."
     },
     {
       "id": "vault-roundtrip",
       "title": "Correspondence vault + demask roundtrip",
-      "status": "planned",
-      "passes": false,
+      "status": "done",
+      "passes": true,
       "priority": "high",
-      "owner": "rust-store",
-      "write_globs": ["compute/src/store.rs", "compute/src/keys.rs", "compute/tests/test_store.rs"],
+      "owner": "go-store",
+      "write_globs": ["internal/compute/store.go", "internal/compute/keys.go", "internal/compute/crypto.go"],
       "scope": "payload_id vault; AES-GCM; sync put before 200; lookup without detect semaphore; TTL 86400.",
       "acceptance_criteria": [
         "demask(our mask) == original 100%",
@@ -77,22 +77,22 @@
         "Demask path does not take detect semaphore"
       ],
       "verification": [
-        "cd compute && cargo test test_store"
+        "go test ./internal/compute/ -run TestProcessor"
       ],
       "notes": "Track D."
     },
     {
       "id": "pipeline-stats-compose",
       "title": "Pipeline wiring, /stats, compose, selfcheck",
-      "status": "planned",
-      "passes": false,
+      "status": "done",
+      "passes": true,
       "priority": "high",
       "owner": "glue",
       "write_globs": [
-        "compute/src/pipeline.rs",
-        "compute/src/routers/**",
-        "compute/src/stats.rs",
-        "compute/src/main.rs",
+        "internal/compute/pipeline.go",
+        "internal/compute/processor.go",
+        "internal/compute/stats.go",
+        "cmd/server/main.go",
         "docker-compose.yml",
         "demo/**",
         "scripts/**",
@@ -116,21 +116,21 @@
     },
     {
       "id": "code-quality-zip-gate",
-      "title": "Clippy/vet + zip quality gate",
-      "status": "planned",
-      "passes": false,
+      "title": "go vet + zip quality gate",
+      "status": "done",
+      "passes": true,
       "priority": "high",
       "owner": "glue",
-      "write_globs": ["scripts/pack.sh", "compute/**", "api/**"],
-      "scope": "clippy -D warnings, go vet, no todo! on /process path, pack source-only zip.",
+      "write_globs": ["scripts/pack.sh", "internal/**", "cmd/**"],
+      "scope": "go vet, gofmt, no panic(todo) on /process path, pack source-only zip.",
       "acceptance_criteria": [
-        "cargo clippy -- -D warnings clean",
         "go vet clean",
+        "gofmt clean",
         "zip has no target/, .git, binaries, datasets"
       ],
       "verification": [
-        "cd compute && cargo clippy -- -D warnings && cargo fmt --check",
-        "cd api && go vet ./...",
+        "go vet ./...",
+        "gofmt -l .",
         "scripts/pack.sh"
       ],
       "notes": "~6k Sonar-style rules gate."
@@ -142,14 +142,14 @@
       "passes": false,
       "priority": "low",
       "owner": "glue",
-      "write_globs": ["compute/src/mask/fpe.rs", "compute/src/mask/**"],
+      "write_globs": ["internal/compute/mask/**"],
       "scope": "After must: FF1 (not FF3), synthetic faker, optional 2000 RPS demo.",
       "acceptance_criteria": [
         "Must features still pass",
         "No FPE on CVV/PIN"
       ],
       "verification": [
-        "cd compute && cargo test",
+        "go test ./...",
         "python demo/selfcheck.py --url http://localhost:8080"
       ],
       "notes": "Plus only."

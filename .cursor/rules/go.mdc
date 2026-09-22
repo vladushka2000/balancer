@@ -1,15 +1,16 @@
 ---
-description: Go API door — thin transport, no Redis, no detectors
-globs: api/**/*.go
+description: Go module — api door + compute engine; no PII in logs
+globs: internal/**/*.go, cmd/**/*.go
 alwaysApply: false
 ---
 
-# Go api
+# Go module
 
-- Thin door only: validate JSON, rate limit, forward to compute, map 502/504/429.
-- No Redis, no PII detectors, no mask logic in `api/`.
-- Stack: `net/http` + chi middleware; clone `DefaultTransport`;
-  `MaxIdleConnsPerHost ≥ 32`; default RPS target 1500.
-- Logs: never log `payload` / mask / original — only `payload_id`, status, duration.
+- `internal/api` — thin door: validate JSON, rate limit, call compute. No Redis, no detectors.
+- `internal/compute` — engine: detect, mask, correspondence store, admin, stats.
+- api ↔ compute at **package level** (function calls), not HTTP. HTTP layer is `cmd/server`.
+- Put to Redis **before** 200 on new mask. Demask/lookup skips detect semaphore.
+- Partial etalon-style masks on hot path; FPE/synthetic after must.
+- Logs/metrics: types and offsets only — never PII values.
 - No comments in code. `gofmt` + `go vet` before done.
-- Ownership: write only `api/**` (track A). See `docs/agents/OWNERSHIP.md`.
+- Ownership: respect track globs (api / detect / mask / store). See `docs/agents/OWNERSHIP.md`.

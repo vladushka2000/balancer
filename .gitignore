@@ -7,3 +7,9 @@ target/
 .env
 .env.*
 !.env.example
+
+# Go
+/bin/
+*.exe
+*.test
+*.out

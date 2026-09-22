@@ -32,12 +32,12 @@ Operational memo для хакатонного PII-прокси (`POST /process`
 
 | Слой | Стек | Роль | Ориентир на рынке |
 |---|---|---|---|
-| Door | Go `net/http` (+ chi middleware) | Validate, rate limit, forward, 429 | LiteLLM proxy edge; Envoy/Higress door; Bifrost (Go) hygiene |
-| Engine | Rust (axum) | Detect → mask → vault | Presidio Analyzer/Anonymizer; Higress AI Data Masking (`restore: true`) |
+| Door | Go `net/http` | Validate, rate limit, вызов compute, 429 | LiteLLM proxy edge; Envoy/Higress door; Bifrost (Go) hygiene |
+| Engine | Go `internal/compute` | Detect → mask → vault | Presidio Analyzer/Anonymizer; Higress AI Data Masking (`restore: true`) |
 | Store | Redis + in-memory | `payload_id → {original, mask}` | PCI token vault; Skyflow mapping |
 
-Современный консенсус 2025–26: **Go = control/door, Rust = AI/CPU data plane**
-(kgateway → agentgateway; Helicone/SGLang/Dynamo — Rust). Split уже начат — оставляем.
+Один Go-модуль, два пакета (`internal/api` + `internal/compute`), вызовы функций
+без HTTP. Rust снят — весь hot path на Go.
 
 ---
 
@@ -67,7 +67,7 @@ Operational memo для хакатонного PII-прокси (`POST /process`
 
 | Паттерн LLM-мира | У нас | Steal? |
 |---|---|---|
-| Thin L7 + fat compute | Go api → Rust compute | **yes** |
+| Thin L7 + fat compute | Go api → Go compute (пакеты) | **yes** |
 | Token/TPM admission | Размер payload (runes/4) в bucket; headroom > пика | **partial** |
 | Idempotency key | `payload_id` = ключ; lookup до detect | **yes** (инверсия: completions не ретраят, `/process` обязан) |
 | Mask outbound / restore inbound | Higress AI Data Masking; Presidio deanonymize | **yes** — это продукт |
@@ -86,10 +86,10 @@ BricksLLM (Go, stale).
 
 Формат: **ориентир → копируем → не тащим**.
 
-| # | Требование ТЗ | Ориентир на рынке | Копируем в Go+Rust | Не тащим |
+| # | Требование ТЗ | Ориентир на рынке | Копируем в Go | Не тащим |
 |---|---|---|---|---|
 | 1 | Встраивание в цепочку consumer→LLM | Sidecar/Ambassador ([Azure](https://learn.microsoft.com/en-us/azure/architecture/patterns/sidecar)); LiteLLM pre/post_call; Envoy | Sync `POST /process`; Go door | Очередь, отдельная шина |
-| 2 | Детекция ПД (качество) | Presidio hybrid; Natasha/Yargy (RU); DeepPavlov/GLiNER — batch | Regex+checksum + dict/rules на Rust | BERT/GLiNER/spaCy на `/process` |
+| 2 | Детекция ПД (качество) | Presidio hybrid; Natasha/Yargy (RU); DeepPavlov/GLiNER — batch | Regex+checksum + dict/rules на Go | BERT/GLiNER/spaCy на `/process` |
 | 3 | Мало FP (Пушкин, отделение банка) | 152-ФЗ ст.3; Presidio context/deny-list | Окно ~200 + маркеры + gazetteers | Маскировать всё PER/LOC |
 | 4 | Смысл для LLM после маски | PCI partial display; Presidio `mask` | Etalon-style partial (`45** ****56`, `И. И. И.`) | Redact `[TYPE]` на чекере |
 | 5 | Правила per-system | Google SDP templates; LiteLLM policies | `SystemConfig` в Redis; default-policy | OPA на день 1 |
@@ -106,9 +106,9 @@ BricksLLM (Go, stale).
 | 16 | 100 000 токенов | Linear regex; chunked NER | Regex full-doc; NER chunks 4k/200 | Neural на весь текст |
 | 17 | ИБ / контур банка | ГОСТ Р 57580; 152-ФЗ | Contour, encrypt store, no cloud DLP | Сертифицированный СКЗИ в zip |
 | 18 | Надёжность: идемпотентность, 429 | Idempotency-Key draft; RFC 9110 | `payload_id` cache; 429+Retry-After; **не 429 demask** | Retry без store |
-| 19 | Latency ≤1с, RPS 1000 | Rust `regex` (RE2-class); Hyperscan — DPI | `regex` + aho-corasick; limiter 1500 | Hyperscan FFI, Python re |
+| 19 | Latency ≤1с, RPS 1000 | Go `regexp` (RE2-class); Hyperscan — DPI | `regexp` + aho-corasick; limiter 1500 | Hyperscan FFI, Python re |
 | 20 | Плюсы: FPE/synthetic/PIN-gate/другие УЛ | NIST FF1 (не FF3); Faker ru_RU; Skyflow «не FPE CVV» | После must; PIN iff card | FF3, FPE на CVV |
-| 21 | Zip / ~6к правил качества | Sonar/AlfaSonar; Clippy | `clippy -D warnings`, `go vet`, короткие модули, zip исходников | `todo!()` в релизе |
+| 21 | Zip / ~6к правил качества | Sonar/AlfaSonar; Clippy | `go vet`, `gofmt`, короткие модули, zip исходников | `todo!()` в релизе |
 
 ### Checker (Приложение B) — два разных score
 
@@ -133,8 +133,8 @@ BricksLLM (Go, stale).
 
 ## 7. Стек дня (заморожен)
 
-1. **Go `api/`** — JSON validate → token bucket → forward → 502/504 mapping.
-2. **Rust `compute/`** — lookup → (miss) detect → etalon partial → AES-GCM put → 200.
+1. **Go `internal/api`** — JSON validate → token bucket → вызов compute → 422/429/500.
+2. **Go `internal/compute`** — lookup → (miss) detect → etalon partial → AES-GCM put → 200.
 3. **Redis** — correspondence + optional `SystemConfig`.
 4. **Не в день 0:** FPE, Faker, Hyperscan, второй LB-алгоритм, Prompt Shield.
 

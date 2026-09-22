@@ -8,10 +8,15 @@ consumer → LLM. Контракт проверки — `POST /process`.
 
 ## Split
 
+Один Go-модуль. api ↔ compute — **на уровне пакетов** (прямой вызов функций),
+не HTTP. HTTP-слой один — `cmd/server`.
+
 | Path | Lang | Role |
 |---|---|---|
-| `api/` | Go | Thin door: validate, rate limit, forward |
-| `compute/` | Rust | Detect, mask, vault, admin, stats |
+| `cmd/server` | Go | HTTP: `POST /process`, `/app/health`, admin |
+| `internal/api` | Go | Thin door: validate, rate limit, вызов compute |
+| `internal/compute` | Go | Detect, mask, vault, admin, stats |
+| `internal/models` | Go | Замороженный контракт (DTO) |
 
 Контракт заморожен: `{payload, payload_id}` → `{result}`.
 
@@ -29,7 +34,7 @@ consumer → LLM. Контракт проверки — `POST /process`.
 ## Editing
 
 - Маленькие scoped diffs. Без лишних рефакторов и новых deps без запроса.
-- **Без комментариев** в Go/Rust (gate хакатона).
+- **Без комментариев** в Go (gate хакатона).
 - Не меняй `ProcessRequest` / `ProcessResponse` без явного решения.
 - Параллель: exclusive globs — [`docs/agents/OWNERSHIP.md`](docs/agents/OWNERSHIP.md).
   Один агент = один git worktree. Shared files (compose, DTO, feature_list) — glue.
@@ -40,11 +45,13 @@ consumer → LLM. Контракт проверки — `POST /process`.
 
 | Area | Command |
 |---|---|
-| Go api | `cd api && go test ./... && go vet ./...` |
-| Rust compute | `cd compute && cargo test && cargo clippy -- -D warnings && cargo fmt --check` |
-| Detect slice | `cd compute && cargo test test_structural test_ner test_context test_merge` |
-| Mask slice | `cd compute && cargo test test_mask` |
-| Store slice | `cd compute && cargo test test_store` |
+| Go build | `go build ./...` |
+| Go tests | `go test ./...` |
+| Go vet | `go vet ./...` |
+| Go fmt | `gofmt -l .` |
+| Detect slice | `go test ./internal/compute/detect/...` |
+| Mask slice | `go test ./internal/compute/mask/...` |
+| Store slice | `go test ./internal/compute/ -run TestProcessor` |
 | Compose | `docker compose up --build` |
 | Selfcheck | `python demo/selfcheck.py --url http://localhost:8080` |
 | Load jury | `python demo/load.py --url http://localhost:8080 --profile jury` |
@@ -66,7 +73,7 @@ Stop and ask: scope unclear; architecture conflict; destructive op; cannot verif
 | [`balancer.md`](balancer.md) | Практики Go-шлюза + рыночная карта |
 | [`plan.md`](plan.md) | Must-порядок, треки, инварианты |
 | [`hack.md`](hack.md) | Детальный playbook дня |
-| Nested `api/AGENTS.md`, `compute/AGENTS.md` | Работа внутри пакета |
+| Nested `internal/api`, `internal/compute` | Работа внутри пакета |
 
 ## Jury (2026-09-22)
 
@@ -79,17 +86,17 @@ Stop and ask: scope unclear; architecture conflict; destructive op; cannot verif
 
 | Keywords | Read / edit |
 |---|---|
-| contract, /process, payload_id | `main.md`; `api/.../process.go`; `compute/src/routers/process.rs` |
-| detector, Luhn, INN, passport | `compute/src/detect/structural.rs` |
-| FIO, address, Pushkin, context | `compute/src/detect/ner.rs`, `context.rs` |
-| merge, PIN gate | `compute/src/detect/merge.rs` |
-| mask, etalon, partial | `compute/src/mask/` |
-| vault, Redis, demask | `compute/src/store.rs`, `keys.rs` |
-| rate limit, 429 | `api/internal/ratelimit/` |
-| concurrency semaphore | `compute/src/ratelimit.rs` |
-| /stats, latency percentiles | `compute/src/stats.rs` |
-| /systems, SystemConfig | `compute/src/routers/admin.rs`, `repo.rs` |
-| pipeline | `compute/src/pipeline.rs` |
+| contract, /process, payload_id | `main.md`; `cmd/server/main.go`; `internal/models/models.go` |
+| detector, Luhn, INN, passport | `internal/compute/detect/structural.go` |
+| FIO, address, Pushkin, context | `internal/compute/detect/ner.go`, `context.go` |
+| merge, PIN gate | `internal/compute/detect/merge.go` |
+| mask, etalon, partial | `internal/compute/mask/` |
+| vault, Redis, demask | `internal/compute/store.go`, `keys.go` |
+| rate limit, 429 | `internal/api/ratelimit.go` |
+| concurrency semaphore | `internal/compute/ratelimit.go` |
+| /stats, latency percentiles | `internal/compute/stats.go` |
+| /systems, SystemConfig | `internal/compute/repo.go` |
+| pipeline | `internal/compute/pipeline.go` |
 | compose, deploy | `docker-compose.yml` |
 | ownership, parallel tracks | `docs/agents/OWNERSHIP.md` |
 
@@ -97,4 +104,4 @@ Stop and ask: scope unclear; architecture conflict; destructive op; cannot verif
 
 1. Код — истина при drift с промптом; скажи об этом.
 2. ПД не логировать и не класть в метрики.
-3. Качество кода — Code quality в nested AGENTS + clippy/vet перед сдачей.
+3. Качество кода — Code quality в nested AGENTS + `go vet`/`gofmt` перед сдачей.
