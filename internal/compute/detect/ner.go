@@ -28,6 +28,7 @@ var (
 	streetRe      = regexp.MustCompile(`(?i)(?:ул\.|улица|пр\.|проспект|пер\.|переулок|бульвар)\s+[А-ЯЁ][а-яё]+`)
 	houseRe       = regexp.MustCompile(`(?i)(?:д\.|дом)\s*\d+`)
 	flatRe        = regexp.MustCompile(`(?i)(?:кв\.|квартира)\s*\d+`)
+	cardHolderRe  = regexp.MustCompile(`(?i:держатель|holder|имя на карте|cardholder)\s*(?:карты\s+)?[:]?\s*([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2})`)
 )
 
 // NERDetector finds FIO, addresses and issuing organs via regex+dict.
@@ -182,6 +183,11 @@ func (n *NERDetector) detectChunk(c chunk) []models.Span {
 	for _, m := range citizenshipRe.FindAllStringIndex(c.text, -1) {
 		spans = append(spans, models.Span{
 			Start: c.offset + m[0], End: c.offset + m[1], Type: "citizenship", Confidence: 0.7, Source: "ner",
+		})
+	}
+	for _, m := range cardHolderRe.FindAllStringSubmatchIndex(c.text, -1) {
+		spans = append(spans, models.Span{
+			Start: c.offset + m[2], End: c.offset + m[3], Type: "card_holder", Confidence: 0.8, Source: "ner",
 		})
 	}
 	return spans

@@ -2,8 +2,11 @@ package compute
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"pii/internal/models"
 )
 
 func newTestProcessor() *Processor {
@@ -182,5 +185,93 @@ func TestAdjustBucketWithRegistry(t *testing.T) {
 	p.adjustBucket(context.Background())
 	if int(p.bucket.capacity) != 1500 {
 		t.Fatalf("expected bucket 1500 with 1 alive, got %v", p.bucket.capacity)
+	}
+}
+
+func TestSystemIDFromPayloadID(t *testing.T) {
+	cases := map[string]string{
+		"sys1:abc": "sys1",
+		"sys2-def": "sys2",
+		"sys3_xyz": "sys3",
+		"plain":    "default",
+		"":         "default",
+		":leading": "default",
+	}
+	for in, want := range cases {
+		if got := systemIDFromPayloadID(in); got != want {
+			t.Fatalf("systemIDFromPayloadID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestProcessorSystemDisabled(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1000, 1000)
+	repo := NewRepo(nil, "pii")
+	repo.cache["sys"] = repoCacheEntry{
+		config: models.SystemConfig{SystemID: "sys", Enabled: false},
+		exp:    time.Now().Add(time.Hour),
+	}
+	p := NewProcessor(store, newTestPipeline(), sem, bucket, stats, repo)
+	ctx := context.Background()
+	out, err := p.Process(ctx, "паспорт 4509 123456", "sys:1")
+	if err != nil {
+		t.Fatalf("process failed: %v", err)
+	}
+	if out != "паспорт 4509 123456" {
+		t.Fatalf("expected unchanged when system disabled, got %q", out)
+	}
+}
+
+func TestProcessorSystemTypeFilter(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1000, 1000)
+	repo := NewRepo(nil, "pii")
+	repo.cache["sys"] = repoCacheEntry{
+		config: models.SystemConfig{SystemID: "sys", Enabled: true, DemaskEnabled: true, Types: "passport"},
+		exp:    time.Now().Add(time.Hour),
+	}
+	p := NewProcessor(store, newTestPipeline(), sem, bucket, stats, repo)
+	ctx := context.Background()
+	original := "Клиент Иванов Иван Иванович, паспорт 4509 123456"
+	out, err := p.Process(ctx, original, "sys:1")
+	if err != nil {
+		t.Fatalf("process failed: %v", err)
+	}
+	if strings.Contains(out, "И. И. И.") {
+		t.Fatalf("expected fio not masked when filtered, got %q", out)
+	}
+	if !strings.Contains(out, "45** ****56") {
+		t.Fatalf("expected passport masked, got %q", out)
+	}
+}
+
+func TestProcessorSystemDemaskDisabled(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1000, 1000)
+	repo := NewRepo(nil, "pii")
+	repo.cache["sys"] = repoCacheEntry{
+		config: models.SystemConfig{SystemID: "sys", Enabled: true, DemaskEnabled: false},
+		exp:    time.Now().Add(time.Hour),
+	}
+	p := NewProcessor(store, newTestPipeline(), sem, bucket, stats, repo)
+	ctx := context.Background()
+	original := "паспорт 4509 123456"
+	mask, err := p.Process(ctx, original, "sys:1")
+	if err != nil {
+		t.Fatalf("mask failed: %v", err)
+	}
+	out, err := p.Process(ctx, mask, "sys:1")
+	if err != nil {
+		t.Fatalf("demask failed: %v", err)
+	}
+	if out != mask {
+		t.Fatalf("expected demask disabled to return mask, got %q", out)
 	}
 }

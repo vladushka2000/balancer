@@ -89,6 +89,57 @@ func TestPipelineBirthDate(t *testing.T) {
 	}
 }
 
+func TestPipelineLargeText100kTokens(t *testing.T) {
+	p := newTestPipeline()
+	word := "слово"
+	base := "Клиент Иванов Иван Иванович, паспорт 4509 123456, "
+	var b strings.Builder
+	for i := 0; i < 100000; i++ {
+		b.WriteString(word)
+		b.WriteString(" ")
+	}
+	text := base + b.String()
+	masked, types := p.Process(text)
+	if !strings.Contains(masked, "И. И. И.") {
+		t.Fatalf("expected fio masked in large text")
+	}
+	if !strings.Contains(masked, "45** ****56") {
+		t.Fatalf("expected passport masked in large text")
+	}
+	if !contains(types, "fio") || !contains(types, "passport") {
+		t.Fatalf("expected fio and passport types, got %v", types)
+	}
+}
+
+func TestPipelineCardHolder(t *testing.T) {
+	p := newTestPipeline()
+	masked, types := p.Process("держатель карты Иванов Иван, карта 4111 1111 1111 1111")
+	if !strings.Contains(masked, "И***** И***") {
+		t.Fatalf("expected card holder masked, got %q", masked)
+	}
+	if !contains(types, "card_holder") {
+		t.Fatalf("expected card_holder type, got %v", types)
+	}
+}
+
+func TestPipelineFilteredTypes(t *testing.T) {
+	p := newTestPipeline()
+	text := "Клиент Иванов Иван Иванович, паспорт 4509 123456"
+	masked, types := p.ProcessFiltered(text, map[string]bool{"passport": true})
+	if strings.Contains(masked, "И. И. И.") {
+		t.Fatalf("expected fio not masked when filtered out, got %q", masked)
+	}
+	if !strings.Contains(masked, "45** ****56") {
+		t.Fatalf("expected passport masked, got %q", masked)
+	}
+	if contains(types, "fio") {
+		t.Fatalf("expected fio filtered from types, got %v", types)
+	}
+	if !contains(types, "passport") {
+		t.Fatalf("expected passport in types, got %v", types)
+	}
+}
+
 func contains(list []string, v string) bool {
 	for _, x := range list {
 		if x == v {

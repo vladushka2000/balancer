@@ -41,6 +41,12 @@ func MergeSpans(spans []models.Span) []models.Span {
 }
 
 func prefer(a, b models.Span) bool {
+	if a.Type == "card_holder" && b.Type == "fio" {
+		return true
+	}
+	if b.Type == "card_holder" && a.Type == "fio" {
+		return false
+	}
 	if a.Source == "regex" && b.Source != "regex" {
 		return true
 	}

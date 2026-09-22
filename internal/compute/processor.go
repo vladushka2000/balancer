@@ -3,8 +3,11 @@ package compute
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
+
+	"pii/internal/models"
 )
 
 // ErrRateLimited is returned when the concurrency semaphore is exhausted.
@@ -56,10 +59,19 @@ func NewProcessorWithRegistry(store *Store, pipeline *Pipeline, semaphore *Semap
 // Process handles a payload: idempotency lookup → detect → mask → store.
 func (p *Processor) Process(ctx context.Context, payload, payloadID string) (string, error) {
 	start := time.Now()
+	systemID := systemIDFromPayloadID(payloadID)
+	cfg := p.systemConfig(ctx, systemID)
+
+	if !cfg.Enabled {
+		return payload, nil
+	}
 
 	if result, dir, found, err := p.store.Lookup(ctx, payloadID, payload); err != nil {
 		return "", err
 	} else if found {
+		if dir == DirectionDemask && !cfg.DemaskEnabled {
+			return payload, nil
+		}
 		p.stats.RecordTokens(nil, elapsedMs(start), dir, tokenCount(payload))
 		return result, nil
 	}
@@ -78,12 +90,49 @@ func (p *Processor) Process(ctx context.Context, payload, payloadID string) (str
 	}
 	defer p.semaphore.Release()
 
-	masked, types := p.pipeline.Process(payload)
+	masked, types := p.pipeline.ProcessFiltered(payload, allowedTypes(cfg))
 	if err := p.store.Put(ctx, payloadID, payload, masked, types); err != nil {
 		return "", ErrStore
 	}
 	p.stats.RecordTokens(types, elapsedMs(start), DirectionMask, tokenCount(payload))
 	return masked, nil
+}
+
+// systemConfig returns the per-system policy, defaulting to allow-all.
+func (p *Processor) systemConfig(ctx context.Context, systemID string) models.SystemConfig {
+	if p.repo == nil {
+		return models.SystemConfig{SystemID: systemID, Enabled: true, DemaskEnabled: true}
+	}
+	cfg, err := p.repo.GetSystem(ctx, systemID)
+	if err != nil || cfg == nil {
+		return models.SystemConfig{SystemID: systemID, Enabled: true, DemaskEnabled: true}
+	}
+	return *cfg
+}
+
+// allowedTypes converts the config's comma-separated type list into a set.
+func allowedTypes(c models.SystemConfig) map[string]bool {
+	if c.Types == "" {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, t := range strings.Split(c.Types, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			set[t] = true
+		}
+	}
+	return set
+}
+
+// systemIDFromPayloadID derives the system id from the payload id prefix.
+func systemIDFromPayloadID(payloadID string) string {
+	for _, sep := range []string{":", "-", "_"} {
+		if i := strings.Index(payloadID, sep); i > 0 {
+			return payloadID[:i]
+		}
+	}
+	return "default"
 }
 
 // adjustBucket resizes the token bucket to globalRPS / AliveCount.

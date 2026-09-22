@@ -192,4 +192,5 @@ var maskRules = map[string]func(string, models.Span) string{
 	"org":             MaskDefault,
 	"birth_place":     MaskWord,
 	"citizenship":     MaskWord,
+	"card_holder":     MaskWord,
 }
