@@ -25,3 +25,27 @@ func TestConfigEpochKey(t *testing.T) {
 		t.Fatalf("expected pii:control:config_epoch, got %q", got)
 	}
 }
+
+func TestAliveKey(t *testing.T) {
+	if got := aliveKey("pii", "inst1"); got != "pii:alive:inst1" {
+		t.Fatalf("expected pii:alive:inst1, got %q", got)
+	}
+}
+
+func TestStatsKey(t *testing.T) {
+	if got := statsKey("pii", "inst1"); got != "pii:stats:inst1" {
+		t.Fatalf("expected pii:stats:inst1, got %q", got)
+	}
+}
+
+func TestAliveSet(t *testing.T) {
+	if got := aliveSet("pii"); got != "pii:alive" {
+		t.Fatalf("expected pii:alive, got %q", got)
+	}
+}
+
+func TestStatsSet(t *testing.T) {
+	if got := statsSet("pii"); got != "pii:stats" {
+		t.Fatalf("expected pii:stats, got %q", got)
+	}
+}

@@ -9,30 +9,40 @@ import (
 
 // Config holds engine settings loaded from environment variables.
 type Config struct {
-	RedisURL      string
-	NS            string
-	CorrTTL       time.Duration
-	CacheMax      int
-	MaxConcurrent int
-	SemWait       time.Duration
-	NERChunkChars int
-	NEROverlap    int
-	ContextWindow int
-	StoreKey      string
+	RedisURL          string
+	NS                string
+	CorrTTL           time.Duration
+	CacheMax          int
+	MaxConcurrent     int
+	SemWait           time.Duration
+	NERChunkChars     int
+	NEROverlap        int
+	ContextWindow     int
+	StoreKey          string
+	GlobalRPS         int
+	AliveTTL          time.Duration
+	HeartbeatInterval time.Duration
+	StatsPublishEvery time.Duration
+	StatsTTL          time.Duration
 }
 
 // DefaultConfig returns engine defaults.
 func DefaultConfig() Config {
 	return Config{
-		RedisURL:      "redis://localhost:6379/0",
-		NS:            "pii",
-		CorrTTL:       24 * time.Hour,
-		CacheMax:      100000,
-		MaxConcurrent: runtime.NumCPU(),
-		SemWait:       300 * time.Millisecond,
-		NERChunkChars: 4000,
-		NEROverlap:    200,
-		ContextWindow: 200,
+		RedisURL:          "redis://localhost:6379/0",
+		NS:                "pii",
+		CorrTTL:           24 * time.Hour,
+		CacheMax:          100000,
+		MaxConcurrent:     runtime.NumCPU(),
+		SemWait:           300 * time.Millisecond,
+		NERChunkChars:     4000,
+		NEROverlap:        200,
+		ContextWindow:     200,
+		GlobalRPS:         1500,
+		AliveTTL:          10 * time.Second,
+		HeartbeatInterval: 3 * time.Second,
+		StatsPublishEvery: 2 * time.Second,
+		StatsTTL:          10 * time.Second,
 	}
 }
 
@@ -82,6 +92,31 @@ func LoadConfig() Config {
 	}
 	if v := os.Getenv("PII_STORE_KEY"); v != "" {
 		cfg.StoreKey = v
+	}
+	if v := os.Getenv("PII_GLOBAL_RPS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.GlobalRPS = n
+		}
+	}
+	if v := os.Getenv("PII_ALIVE_TTL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.AliveTTL = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("PII_HEARTBEAT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.HeartbeatInterval = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("PII_STATS_PUBLISH_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.StatsPublishEvery = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("PII_STATS_TTL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.StatsTTL = time.Duration(n) * time.Second
+		}
 	}
 	return cfg
 }

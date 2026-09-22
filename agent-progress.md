@@ -87,10 +87,20 @@ Smoke-test (Redis на :6390): mask → demask roundtrip 100%, `mask_ok == demas
 `python demo/selfcheck.py` → `SELFCHECK OK` (masked 14/14, roundtrip 14/14, fp 4/4).
 `docker compose up --build` — образ собирается (порт 6379 занят локальным redis — env-конфликт, не compose).
 
+### Трек 7 (нагрузка, 2026-09-22)
+
+- `demo/load.py` — генератор нагрузки под профиль жюри:
+  - Профиль `jury`: разгон 50 → avg 330 → пики 1000 → спад (ramp_profile).
+  - Профиль `rps2000`: avg 1500 → пики 2000 (плюс ТЗ, не gate).
+  - Смешанные типы ПД (паспорт, ФИО, дата, в/у, адрес, email, телефон, ИНН, карта, CVV, ПИН, код подразделения).
+  - На каждом payload_id: POST mask → POST demask с НАШИМ result.
+  - Отчёт: RPS факт, latency mean/p50/p95/p99, count_429, mask_ok, demask_ok, roundtrip_fail.
+  - Gate: mask_ok == demask_ok, roundtrip_fail == 0, p99 ≤ 1с.
+- Проверено на mock-сервере: mask_ok == demask_ok, roundtrip_fail == 0, LOAD OK.
+
 ## Дальше
 
-1. `demo/load.py` (разгон 330→1000, mean/p50/p95/p99, mask_ok==demask_ok) — Трек 7.
-2. Трек 8: финальный `go vet`/`gofmt`, сухой прогон `pack.sh`.
+1. Трек 8: финальный `go vet`/`gofmt`, сухой прогон `pack.sh`.
 
 ## Блокеры
 

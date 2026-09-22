@@ -115,3 +115,72 @@ func TestProcessorDemaskNotRateLimited(t *testing.T) {
 		t.Fatalf("mask retry must not be rate limited, got %v", err)
 	}
 }
+
+func TestProcessorWithRegistryNilRegistry(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1000, 1000)
+	p := NewProcessorWithRegistry(store, newTestPipeline(), sem, bucket, stats, nil, nil, 1500)
+	ctx := context.Background()
+	if _, err := p.Process(ctx, "паспорт 4509 123456", "reg-nil-1"); err != nil {
+		t.Fatalf("process failed: %v", err)
+	}
+	if int(p.bucket.capacity) != 1000 {
+		t.Fatalf("expected bucket unchanged with nil registry, got %v", p.bucket.capacity)
+	}
+}
+
+func TestProcessorWithRegistryDividesLimit(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1500, 1500)
+	reg := NewRegistry(nil, "pii", 10*time.Second, 3*time.Second)
+	p := NewProcessorWithRegistry(store, newTestPipeline(), sem, bucket, stats, nil, reg, 1500)
+	ctx := context.Background()
+	if _, err := p.Process(ctx, "паспорт 4509 123456", "reg-div-1"); err != nil {
+		t.Fatalf("process failed: %v", err)
+	}
+	if int(p.bucket.capacity) != 1500 {
+		t.Fatalf("expected bucket 1500 with 1 alive instance, got %v", p.bucket.capacity)
+	}
+}
+
+func TestAdjustBucketNoRegistry(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(100, 100)
+	p := NewProcessor(store, newTestPipeline(), sem, bucket, stats, nil)
+	p.adjustBucket(context.Background())
+	if int(p.bucket.capacity) != 100 {
+		t.Fatalf("expected bucket unchanged, got %v", p.bucket.capacity)
+	}
+}
+
+func TestAdjustBucketZeroGlobalRPS(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(100, 100)
+	reg := NewRegistry(nil, "pii", 10*time.Second, 3*time.Second)
+	p := NewProcessorWithRegistry(store, newTestPipeline(), sem, bucket, stats, nil, reg, 0)
+	p.adjustBucket(context.Background())
+	if int(p.bucket.capacity) != 100 {
+		t.Fatalf("expected bucket unchanged with zero global rps, got %v", p.bucket.capacity)
+	}
+}
+
+func TestAdjustBucketWithRegistry(t *testing.T) {
+	store := NewStore(nil, "pii", 24*time.Hour, 1000, nil)
+	stats := NewStats()
+	sem := NewSemaphore(4, 100*time.Millisecond)
+	bucket := NewTokenBucket(1500, 1500)
+	reg := NewRegistry(nil, "pii", 10*time.Second, 3*time.Second)
+	p := NewProcessorWithRegistry(store, newTestPipeline(), sem, bucket, stats, nil, reg, 1500)
+	p.adjustBucket(context.Background())
+	if int(p.bucket.capacity) != 1500 {
+		t.Fatalf("expected bucket 1500 with 1 alive, got %v", p.bucket.capacity)
+	}
+}

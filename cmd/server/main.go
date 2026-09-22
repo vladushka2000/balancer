@@ -75,14 +75,19 @@ func main() {
 		detect.NewContextRule(cfg.computeCfg.ContextWindow),
 		mask.NewMasker("partial"),
 	)
-	proc := compute.NewProcessor(store, pipeline, sem, compute.NewTokenBucket(cfg.rpsTarget, cfg.rpsTarget), stats, repo)
+	registry := compute.NewRegistry(rdb, cfg.computeCfg.NS, cfg.computeCfg.AliveTTL, cfg.computeCfg.HeartbeatInterval)
+	registry.Start(ctx)
+	defer registry.Stop(ctx)
+	proc := compute.NewProcessorWithRegistry(store, pipeline, sem, compute.NewTokenBucket(cfg.computeCfg.GlobalRPS, cfg.computeCfg.GlobalRPS), stats, repo, registry, cfg.computeCfg.GlobalRPS)
 	door := api.NewDoor(proc)
+
+	go publishStatsLoop(ctx, repo, registry, stats, cfg.computeCfg.StatsPublishEvery, cfg.computeCfg.StatsTTL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /process", processHandler(door))
 	mux.HandleFunc("GET /app/health", healthHandler(rdb))
 	mux.HandleFunc("GET /health", healthHandler(rdb))
-	mux.HandleFunc("GET /stats", statsHandler(stats, store))
+	mux.HandleFunc("GET /stats", statsHandler(stats, store, repo))
 	mux.HandleFunc("POST /systems", saveSystemHandler(repo))
 	mux.HandleFunc("GET /systems", listSystemsHandler(repo))
 	mux.HandleFunc("POST /clear", clearHandler(repo))
@@ -141,12 +146,33 @@ func healthHandler(rdb *redis.Client) http.HandlerFunc {
 	}
 }
 
-func statsHandler(stats *compute.Stats, store *compute.Store) http.HandlerFunc {
+func statsHandler(stats *compute.Stats, store *compute.Store, repo *compute.Repo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		snap := stats.Snapshot()
-		snap.CacheHitRate = store.CacheHitRate()
-		snap.CorrStoreSize = store.Size()
+		snaps, err := repo.ReadAllStats(r.Context())
+		if err != nil || len(snaps) == 0 {
+			snap := stats.Snapshot()
+			snap.CacheHitRate = store.CacheHitRate()
+			snap.CorrStoreSize = store.Size()
+			writeJSON(w, http.StatusOK, snap)
+			return
+		}
+		snap := compute.Aggregate(snaps)
 		writeJSON(w, http.StatusOK, snap)
+	}
+}
+
+func publishStatsLoop(ctx context.Context, repo *compute.Repo, registry *compute.Registry, stats *compute.Stats, every, ttl time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := repo.PublishStats(ctx, registry.InstanceID(), stats.Snapshot(), ttl); err != nil {
+				slog.Error("stats publish failed", "error", err)
+			}
+		}
 	}
 }
 

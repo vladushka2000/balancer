@@ -29,6 +29,21 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.SemWait != 300*time.Millisecond {
 		t.Fatalf("expected sem wait 300ms, got %v", cfg.SemWait)
 	}
+	if cfg.GlobalRPS != 1500 {
+		t.Fatalf("expected global rps 1500, got %d", cfg.GlobalRPS)
+	}
+	if cfg.AliveTTL != 10*time.Second {
+		t.Fatalf("expected alive ttl 10s, got %v", cfg.AliveTTL)
+	}
+	if cfg.HeartbeatInterval != 3*time.Second {
+		t.Fatalf("expected heartbeat interval 3s, got %v", cfg.HeartbeatInterval)
+	}
+	if cfg.StatsPublishEvery != 2*time.Second {
+		t.Fatalf("expected stats publish 2s, got %v", cfg.StatsPublishEvery)
+	}
+	if cfg.StatsTTL != 10*time.Second {
+		t.Fatalf("expected stats ttl 10s, got %v", cfg.StatsTTL)
+	}
 }
 
 func TestConfigFromEnv(t *testing.T) {
@@ -40,6 +55,11 @@ func TestConfigFromEnv(t *testing.T) {
 	os.Setenv("PII_NER_OVERLAP", "50")
 	os.Setenv("PII_CONTEXT_WINDOW", "100")
 	os.Setenv("PII_SEM_WAIT_SEC", "0.5")
+	os.Setenv("PII_GLOBAL_RPS", "2000")
+	os.Setenv("PII_ALIVE_TTL_SEC", "20")
+	os.Setenv("PII_HEARTBEAT_SEC", "5")
+	os.Setenv("PII_STATS_PUBLISH_SEC", "4")
+	os.Setenv("PII_STATS_TTL_SEC", "30")
 	defer func() {
 		os.Unsetenv("PII_NS")
 		os.Unsetenv("PII_CORR_TTL_SEC")
@@ -49,6 +69,11 @@ func TestConfigFromEnv(t *testing.T) {
 		os.Unsetenv("PII_NER_OVERLAP")
 		os.Unsetenv("PII_CONTEXT_WINDOW")
 		os.Unsetenv("PII_SEM_WAIT_SEC")
+		os.Unsetenv("PII_GLOBAL_RPS")
+		os.Unsetenv("PII_ALIVE_TTL_SEC")
+		os.Unsetenv("PII_HEARTBEAT_SEC")
+		os.Unsetenv("PII_STATS_PUBLISH_SEC")
+		os.Unsetenv("PII_STATS_TTL_SEC")
 	}()
 
 	cfg := LoadConfig()
@@ -75,5 +100,20 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 	if cfg.SemWait != 500*time.Millisecond {
 		t.Fatalf("expected sem wait 500ms, got %v", cfg.SemWait)
+	}
+	if cfg.GlobalRPS != 2000 {
+		t.Fatalf("expected global rps 2000, got %d", cfg.GlobalRPS)
+	}
+	if cfg.AliveTTL != 20*time.Second {
+		t.Fatalf("expected alive ttl 20s, got %v", cfg.AliveTTL)
+	}
+	if cfg.HeartbeatInterval != 5*time.Second {
+		t.Fatalf("expected heartbeat interval 5s, got %v", cfg.HeartbeatInterval)
+	}
+	if cfg.StatsPublishEvery != 4*time.Second {
+		t.Fatalf("expected stats publish 4s, got %v", cfg.StatsPublishEvery)
+	}
+	if cfg.StatsTTL != 30*time.Second {
+		t.Fatalf("expected stats ttl 30s, got %v", cfg.StatsTTL)
 	}
 }

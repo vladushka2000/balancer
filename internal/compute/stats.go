@@ -1,7 +1,6 @@
 package compute
 
 import (
-	"sort"
 	"sync"
 	"time"
 )
@@ -14,6 +13,65 @@ const (
 	DirectionDemask
 )
 
+// Histogram buckets latency values into fixed bounds (ms).
+type Histogram struct {
+	Bounds []float64 `json:"bounds"`
+	Counts []uint64  `json:"counts"`
+}
+
+// NewHistogram creates a histogram with fixed bucket bounds.
+func NewHistogram() Histogram {
+	return Histogram{
+		Bounds: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000},
+		Counts: make([]uint64, 10),
+	}
+}
+
+// Add records a latency value into the appropriate bucket.
+func (h *Histogram) Add(v float64) {
+	idx := len(h.Bounds)
+	for i, b := range h.Bounds {
+		if v <= b {
+			idx = i
+			break
+		}
+	}
+	h.Counts[idx]++
+}
+
+// Percentile returns the p-th percentile via linear interpolation.
+func (h *Histogram) Percentile(p float64) float64 {
+	var total uint64
+	for _, c := range h.Counts {
+		total += c
+	}
+	if total == 0 {
+		return 0
+	}
+	target := float64(total) * p / 100
+	var cum uint64
+	for i, c := range h.Counts {
+		cum += c
+		if float64(cum) >= target {
+			if i == len(h.Bounds) {
+				return h.Bounds[len(h.Bounds)-1]
+			}
+			lo := 0.0
+			if i > 0 {
+				lo = h.Bounds[i-1]
+			}
+			hi := h.Bounds[i]
+			prev := cum - c
+			if c == 0 {
+				return hi
+			}
+			frac := (target - float64(prev)) / float64(c)
+			return lo + frac*(hi-lo)
+		}
+	}
+	return h.Bounds[len(h.Bounds)-1]
+}
+
 // Stats aggregates latency and counters.
 type Stats struct {
 	mu               sync.Mutex
@@ -22,7 +80,8 @@ type Stats struct {
 	demaskOK         uint64
 	count429         uint64
 	detectionsByType map[string]uint64
-	latencies        []float64
+	histogram        Histogram
+	latencySum       float64
 	tokensTotal      uint64
 	window           []time.Time
 }
@@ -31,7 +90,7 @@ type Stats struct {
 func NewStats() *Stats {
 	return &Stats{
 		detectionsByType: map[string]uint64{},
-		latencies:        []float64{},
+		histogram:        NewHistogram(),
 		window:           []time.Time{},
 	}
 }
@@ -57,7 +116,8 @@ func (s *Stats) RecordTokens(types []string, latencyMs float64, dir Direction, t
 	for _, t := range types {
 		s.detectionsByType[t]++
 	}
-	s.latencies = append(s.latencies, latencyMs)
+	s.histogram.Add(latencyMs)
+	s.latencySum += latencyMs
 }
 
 // Record429 records a rate-limited request.
@@ -82,6 +142,7 @@ type Snapshot struct {
 	TokensPerSec     float64           `json:"tokens_per_sec"`
 	CacheHitRate     float64           `json:"cache_hit_rate"`
 	CorrStoreSize    int               `json:"corr_store_size"`
+	Histogram        Histogram         `json:"histogram"`
 }
 
 // Snapshot returns the current stats.
@@ -98,15 +159,13 @@ func (s *Stats) Snapshot() Snapshot {
 	for k, v := range s.detectionsByType {
 		snap.DetectionsByType[k] = v
 	}
-	if len(s.latencies) > 0 {
-		sorted := make([]float64, len(s.latencies))
-		copy(sorted, s.latencies)
-		sort.Float64s(sorted)
-		snap.LatencyMeanMs = mean(sorted)
-		snap.LatencyP50Ms = percentile(sorted, 50)
-		snap.LatencyP95Ms = percentile(sorted, 95)
-		snap.LatencyP99Ms = percentile(sorted, 99)
+	if s.requestsTotal > 0 {
+		snap.LatencyMeanMs = s.latencySum / float64(s.requestsTotal)
+		snap.LatencyP50Ms = s.histogram.Percentile(50)
+		snap.LatencyP95Ms = s.histogram.Percentile(95)
+		snap.LatencyP99Ms = s.histogram.Percentile(99)
 	}
+	snap.Histogram = s.histogram
 	now := time.Now()
 	cutoff := now.Add(-time.Second)
 	recent := 0
@@ -120,6 +179,7 @@ func (s *Stats) Snapshot() Snapshot {
 	return snap
 }
 
+// windowStart returns the timestamp of the first recorded request.
 func (s *Stats) windowStart() time.Time {
 	if len(s.window) == 0 {
 		return time.Now()
@@ -127,18 +187,32 @@ func (s *Stats) windowStart() time.Time {
 	return s.window[0]
 }
 
-func mean(v []float64) float64 {
-	var sum float64
-	for _, x := range v {
-		sum += x
+// Aggregate merges multiple snapshots into one.
+func Aggregate(snaps []Snapshot) Snapshot {
+	out := Snapshot{
+		DetectionsByType: map[string]uint64{},
+		Histogram:        NewHistogram(),
 	}
-	return sum / float64(len(v))
-}
-
-func percentile(sorted []float64, p float64) float64 {
-	if len(sorted) == 0 {
-		return 0
+	for _, s := range snaps {
+		out.RequestsTotal += s.RequestsTotal
+		out.MaskOK += s.MaskOK
+		out.DemaskOK += s.DemaskOK
+		out.Count429 += s.Count429
+		out.TokensPerSec += s.TokensPerSec
+		out.RPS += s.RPS
+		for k, v := range s.DetectionsByType {
+			out.DetectionsByType[k] += v
+		}
+		if len(s.Histogram.Counts) == len(out.Histogram.Counts) {
+			for i := range out.Histogram.Counts {
+				out.Histogram.Counts[i] += s.Histogram.Counts[i]
+			}
+		}
 	}
-	idx := int(float64(len(sorted)-1) * p / 100)
-	return sorted[idx]
+	if out.RequestsTotal > 0 {
+		out.LatencyP50Ms = out.Histogram.Percentile(50)
+		out.LatencyP95Ms = out.Histogram.Percentile(95)
+		out.LatencyP99Ms = out.Histogram.Percentile(99)
+	}
+	return out
 }

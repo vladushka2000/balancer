@@ -111,3 +111,33 @@ func (r *Repo) BumpConfigEpoch(ctx context.Context) error {
 func (r *Repo) GetControlEpoch(ctx context.Context) (int64, error) {
 	return r.rdb.Get(ctx, configEpochKey(r.ns)).Int64()
 }
+
+// PublishStats stores a stats snapshot for an instance with a TTL.
+func (r *Repo) PublishStats(ctx context.Context, instanceID string, snap Snapshot, ttl time.Duration) error {
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return r.rdb.Set(ctx, statsKey(r.ns, instanceID), raw, ttl).Err()
+}
+
+// ReadAllStats reads and aggregates stats snapshots from all instances.
+func (r *Repo) ReadAllStats(ctx context.Context) ([]Snapshot, error) {
+	keys, err := r.rdb.Keys(ctx, statsSet(r.ns)+":*").Result()
+	if err != nil {
+		return nil, err
+	}
+	var out []Snapshot
+	for _, key := range keys {
+		raw, err := r.rdb.Get(ctx, key).Result()
+		if err != nil {
+			continue
+		}
+		var snap Snapshot
+		if err := json.Unmarshal([]byte(raw), &snap); err != nil {
+			continue
+		}
+		out = append(out, snap)
+	}
+	return out, nil
+}

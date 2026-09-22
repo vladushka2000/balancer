@@ -17,3 +17,19 @@ func systemsSet(ns string) string {
 func configEpochKey(ns string) string {
 	return fmt.Sprintf("%s:control:config_epoch", ns)
 }
+
+func aliveKey(ns, instanceID string) string {
+	return fmt.Sprintf("%s:alive:%s", ns, instanceID)
+}
+
+func statsKey(ns, instanceID string) string {
+	return fmt.Sprintf("%s:stats:%s", ns, instanceID)
+}
+
+func aliveSet(ns string) string {
+	return fmt.Sprintf("%s:alive", ns)
+}
+
+func statsSet(ns string) string {
+	return fmt.Sprintf("%s:stats", ns)
+}

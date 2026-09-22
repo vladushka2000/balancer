@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,9 @@ type Processor struct {
 	bucket    *TokenBucket
 	stats     *Stats
 	repo      *Repo
+	registry  *Registry
+	globalRPS int
+	bucketMu  sync.Mutex
 }
 
 // NewProcessor builds an engine processor.
@@ -35,6 +39,21 @@ func NewProcessor(store *Store, pipeline *Pipeline, semaphore *Semaphore, bucket
 	}
 }
 
+// NewProcessorWithRegistry builds an engine processor with a registry for
+// dividing the global rate limit across live instances.
+func NewProcessorWithRegistry(store *Store, pipeline *Pipeline, semaphore *Semaphore, bucket *TokenBucket, stats *Stats, repo *Repo, registry *Registry, globalRPS int) *Processor {
+	return &Processor{
+		store:     store,
+		pipeline:  pipeline,
+		semaphore: semaphore,
+		bucket:    bucket,
+		stats:     stats,
+		repo:      repo,
+		registry:  registry,
+		globalRPS: globalRPS,
+	}
+}
+
 // Process handles a payload: idempotency lookup → detect → mask → store.
 func (p *Processor) Process(ctx context.Context, payload, payloadID string) (string, error) {
 	start := time.Now()
@@ -46,7 +65,11 @@ func (p *Processor) Process(ctx context.Context, payload, payloadID string) (str
 		return result, nil
 	}
 
-	if !p.bucket.Acquire() {
+	p.bucketMu.Lock()
+	p.adjustBucket(ctx)
+	ok := p.bucket.Acquire()
+	p.bucketMu.Unlock()
+	if !ok {
 		p.stats.Record429()
 		return "", ErrRateLimited
 	}
@@ -62,6 +85,24 @@ func (p *Processor) Process(ctx context.Context, payload, payloadID string) (str
 	}
 	p.stats.RecordTokens(types, elapsedMs(start), DirectionMask, tokenCount(payload))
 	return masked, nil
+}
+
+// adjustBucket resizes the token bucket to globalRPS / AliveCount.
+func (p *Processor) adjustBucket(ctx context.Context) {
+	if p.registry == nil || p.globalRPS <= 0 {
+		return
+	}
+	n, err := p.registry.AliveCount(ctx)
+	if err != nil || n < 1 {
+		n = 1
+	}
+	perInstance := p.globalRPS / n
+	if perInstance < 1 {
+		perInstance = 1
+	}
+	if int(p.bucket.capacity) != perInstance {
+		p.bucket = NewTokenBucket(perInstance, perInstance)
+	}
 }
 
 func tokenCount(s string) int {
