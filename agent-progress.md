@@ -39,6 +39,17 @@
   - `config_test.go` — DefaultConfig + LoadConfig из env.
 - Контракт §7 живёт в `internal/models/models.go` (замороженный пакет), совпадает буквально.
 
+### Трек 4 (compute: pipeline + processor + admin, 2026-09-22)
+
+- `internal/compute/pipeline.go` — `Pipeline.Process`: detect→context→merge→mask.
+- `internal/compute/processor.go` — `Processor.Process`: lookup без семафора; put синхронно до 200.
+- `internal/compute/stats.go` — mean/p50/p95/p99, mask_ok, demask_ok, count_429.
+- `internal/compute/logging.go` — slog, фильтр payload/mask/original → `<REDACTED>`.
+- `internal/compute/repo.go` — `Repo` (SaveSystem/GetSystem/ListSystems/epoch), TTL-кэш 2с.
+- `cmd/server/main.go` — полная интеграция: Redis, NER.Preload до bind, Router (/process, /app/health, /stats, /systems, /clear).
+- Тесты `pipeline_test.go` (8) + `processor_test.go` (3) — зелёные.
+- Подробности: `logs/agent-progress-4.md`.
+
 ### Трек 3 (mask + dicts, 2026-09-22)
 
 - `internal/compute/mask/rules.go` — 16 per-type mask-функций + `MaskRules()` (passport, fio, phone, email, card, inn, snils, date, cvv, pin, postal_code, department_code, address, driver_license, default).
