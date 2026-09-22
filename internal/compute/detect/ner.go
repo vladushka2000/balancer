@@ -3,6 +3,7 @@ package detect
 import (
 	"embed"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -14,11 +15,18 @@ var dictFS embed.FS
 
 var (
 	fioRe         = regexp.MustCompile(`[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){2,}`)
+	fioTwoRe      = regexp.MustCompile(`[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+`)
 	addressRe     = regexp.MustCompile(`(?i)(?:г\.|ул\.|пр\.|пер\.|бульвар|проспект)\s+[А-Яа-яЁё0-9.,\s-]+`)
 	orgRe         = regexp.MustCompile(`(?i)(?:выдан|отделение|уфмс|мвд|гу)\s+[А-Яа-яЁё0-9.,\s-]+`)
 	orgMarkerRe   = regexp.MustCompile(`(?i)выдан|отделение|уфмс|мвд|гу`)
 	birthPlaceRe  = regexp.MustCompile(`(?i)(?:место рождения|родился|родилась)\s*[:]?\s*[А-Яа-яЁё][А-Яа-яЁё\s-]+`)
 	citizenshipRe = regexp.MustCompile(`(?i)(?:гражданство|гражданин)\s*[:]?\s*[А-Яа-яЁё][А-Яа-яЁё\s-]+`)
+	fioMarkerRe   = regexp.MustCompile(`(?i)клиент|заемщик|паспорт|родился|родилась|держатель|получатель|заявитель`)
+	countryRe     = regexp.MustCompile(`(?i)(?:страна|государство)\s*[:]?\s*[А-Яа-яЁё][А-Яа-яЁё\s-]+`)
+	cityRe        = regexp.MustCompile(`(?i)(?:г\.|город)\s+[А-ЯЁ][а-яё]+`)
+	streetRe      = regexp.MustCompile(`(?i)(?:ул\.|улица|пр\.|проспект|пер\.|переулок|бульвар)\s+[А-ЯЁ][а-яё]+`)
+	houseRe       = regexp.MustCompile(`(?i)(?:д\.|дом)\s*\d+`)
+	flatRe        = regexp.MustCompile(`(?i)(?:кв\.|квартира)\s*\d+`)
 )
 
 // NERDetector finds FIO, addresses and issuing organs via regex+dict.
@@ -65,11 +73,11 @@ func (n *NERDetector) Detect(text string) []models.Span {
 	}
 	wg.Wait()
 
-	seen := map[[3]int]struct{}{}
+	seen := map[spanKey]struct{}{}
 	var spans []models.Span
 	for _, rs := range results {
 		for _, s := range rs {
-			key := [3]int{s.Start, s.End, len(s.Type)}
+			key := spanKey{Start: s.Start, End: s.End, Type: s.Type}
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -83,6 +91,12 @@ func (n *NERDetector) Detect(text string) []models.Span {
 type chunk struct {
 	text   string
 	offset int
+}
+
+type spanKey struct {
+	Start int
+	End   int
+	Type  string
 }
 
 func chunkText(text string, size, overlap int) []chunk {
@@ -122,11 +136,20 @@ func (n *NERDetector) detectChunk(c chunk) []models.Span {
 			Type: "fio", Confidence: 0.8, Source: "ner",
 		})
 	}
+	for _, m := range fioTwoRe.FindAllStringIndex(c.text, -1) {
+		if !hasMarkerNear(c.text, m[0], m[1]) {
+			continue
+		}
+		spans = append(spans, models.Span{
+			Start: c.offset + m[0], End: c.offset + m[1], Type: "fio", Confidence: 0.7, Source: "ner",
+		})
+	}
 	for _, m := range addressRe.FindAllStringIndex(c.text, -1) {
 		spans = append(spans, models.Span{
 			Start: c.offset + m[0], End: c.offset + m[1], Type: "address", Confidence: 0.7, Source: "ner",
 		})
 	}
+	spans = append(spans, detectAddressComponents(c)...)
 	for _, m := range orgRe.FindAllStringIndex(c.text, -1) {
 		if !orgMarkerRe.MatchString(c.text[m[0]:m[1]]) {
 			continue
@@ -146,4 +169,43 @@ func (n *NERDetector) detectChunk(c chunk) []models.Span {
 		})
 	}
 	return spans
+}
+
+func hasMarkerNear(text string, start, end int) bool {
+	lo := start - 200
+	if lo < 0 {
+		lo = 0
+	}
+	hi := end + 200
+	if hi > len(text) {
+		hi = len(text)
+	}
+	return fioMarkerRe.MatchString(text[lo:hi])
+}
+
+func detectAddressComponents(c chunk) []models.Span {
+	var comps []models.Span
+	for _, re := range []*regexp.Regexp{countryRe, cityRe, streetRe, houseRe, flatRe} {
+		for _, m := range re.FindAllStringIndex(c.text, -1) {
+			comps = append(comps, models.Span{
+				Start: c.offset + m[0], End: c.offset + m[1], Type: "address", Confidence: 0.6, Source: "ner",
+			})
+		}
+	}
+	if len(comps) < 2 {
+		return nil
+	}
+	sort.Slice(comps, func(i, j int) bool { return comps[i].Start < comps[j].Start })
+	merged := []models.Span{comps[0]}
+	for _, s := range comps[1:] {
+		last := &merged[len(merged)-1]
+		if s.Start <= last.End+2 {
+			if s.End > last.End {
+				last.End = s.End
+			}
+			continue
+		}
+		merged = append(merged, s)
+	}
+	return merged
 }

@@ -50,7 +50,7 @@ func (c *ContextRule) Filter(spans []models.Span, text string) []models.Span {
 		}
 		value := strings.ToLower(text[s.Start:s.End])
 		if s.Type == "fio" {
-			if _, ok := c.famous[value]; ok {
+			if _, ok := c.famous[value]; ok && !c.hasStructural(text, s) {
 				continue
 			}
 		}
@@ -80,8 +80,29 @@ func (c *ContextRule) hasContext(text string, s models.Span) bool {
 		end = len(text)
 	}
 	window := strings.ToLower(text[start:end])
+	if c.hasStructural(text, s) {
+		return true
+	}
 	for marker := range c.markers {
 		if strings.Contains(window, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ContextRule) hasStructural(text string, s models.Span) bool {
+	start := s.Start - c.window
+	if start < 0 {
+		start = 0
+	}
+	end := s.End + c.window
+	if end > len(text) {
+		end = len(text)
+	}
+	window := strings.ToLower(text[start:end])
+	for _, m := range []string{"паспорт", "инн", "карта", "телефон", "email", "дата рождения", "дата выдачи", "водительск"} {
+		if strings.Contains(window, m) {
 			return true
 		}
 	}

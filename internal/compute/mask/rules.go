@@ -14,6 +14,9 @@ var (
 	cardRe     = regexp.MustCompile(`(\d{4})[\s-]?(\d{4})[\s-]?(\d{4})[\s-]?(\d{4})`)
 	innRe      = regexp.MustCompile(`\d{10,12}`)
 	dateRe     = regexp.MustCompile(`(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})`)
+	snilsRe    = regexp.MustCompile(`(\d{3})-(\d{3})-(\d{3})\s?(\d{2})`)
+	streetRe   = regexp.MustCompile(`(?i)(ул\.|пр\.|пер\.|бульвар|проспект)\s+([А-Яа-яЁё]+)`)
+	houseRe    = regexp.MustCompile(`(?i)(д\.|дом)\s+(\d+)`)
 )
 
 // MaskPassport masks a passport: "4509 123456" → "45** ****56".
@@ -76,7 +79,11 @@ func MaskINN(text string, s models.Span) string {
 
 // MaskSNILS masks a SNILS: "123-456-789 01" → "123-***-*** **".
 func MaskSNILS(text string, s models.Span) string {
-	return "123-***-*** **"
+	content := text[s.Start:s.End]
+	return snilsRe.ReplaceAllStringFunc(content, func(m string) string {
+		groups := snilsRe.FindStringSubmatch(m)
+		return groups[1] + "-***-*** **"
+	})
 }
 
 // MaskDate masks a date: "12.01.1990" → "**.**.1990".
@@ -90,12 +97,12 @@ func MaskDate(text string, s models.Span) string {
 
 // MaskCVV masks a CVV: "123" → "***".
 func MaskCVV(text string, s models.Span) string {
-	return "***"
+	return strings.Repeat("*", len(text[s.Start:s.End]))
 }
 
-// MaskPIN masks a PIN: "1234" → "***".
+// MaskPIN masks a PIN: "1234" → "****".
 func MaskPIN(text string, s models.Span) string {
-	return "***"
+	return strings.Repeat("*", len(text[s.Start:s.End]))
 }
 
 // MaskPostalCode masks a postal code: "123456" → "******".
@@ -110,7 +117,24 @@ func MaskDepartmentCode(text string, s models.Span) string {
 
 // MaskAddress masks an address: "Москва, ул. Тверская, д. 1" → "Москва, ул. ******, д. **".
 func MaskAddress(text string, s models.Span) string {
-	return "Москва, ул. ******, д. **"
+	content := text[s.Start:s.End]
+	parts := strings.SplitN(content, ",", 2)
+	if len(parts) < 2 {
+		return MaskDefault(text, s)
+	}
+	city := parts[0]
+	rest := parts[1]
+	rest = streetRe.ReplaceAllStringFunc(rest, func(m string) string {
+		groups := streetRe.FindStringSubmatch(m)
+		name := groups[2]
+		r := []rune(name)
+		return groups[1] + " " + string(r[0]) + strings.Repeat("*", len(r)-1)
+	})
+	rest = houseRe.ReplaceAllStringFunc(rest, func(m string) string {
+		groups := houseRe.FindStringSubmatch(m)
+		return groups[1] + " " + strings.Repeat("*", len(groups[2]))
+	})
+	return city + "," + rest
 }
 
 // MaskDriverLicense masks a driver license: "77 АА 123456" → "77** ****56".

@@ -90,12 +90,39 @@ func TestMaskCVV(t *testing.T) {
 	}
 }
 
+func TestMaskCVV4(t *testing.T) {
+	text := "CVV 1234"
+	s := spanFor(text, "1234")
+	got := MaskCVV(text, s)
+	if got != "****" {
+		t.Fatalf("expected ****, got %q", got)
+	}
+}
+
 func TestMaskPIN(t *testing.T) {
 	text := "пин-код 1234"
 	s := spanFor(text, "1234")
 	got := MaskPIN(text, s)
-	if got != "***" {
-		t.Fatalf("expected ***, got %q", got)
+	if got != "****" {
+		t.Fatalf("expected ****, got %q", got)
+	}
+}
+
+func TestMaskSNILS(t *testing.T) {
+	text := "СНИЛС 123-456-789 01"
+	s := spanFor(text, "123-456-789 01")
+	got := MaskSNILS(text, s)
+	if got != "123-***-*** **" {
+		t.Fatalf("expected 123-***-*** **, got %q", got)
+	}
+}
+
+func TestMaskSNILSOtherPrefix(t *testing.T) {
+	text := "СНИЛС 987-654-321 00"
+	s := spanFor(text, "987-654-321 00")
+	got := MaskSNILS(text, s)
+	if got != "987-***-*** **" {
+		t.Fatalf("expected 987-***-*** **, got %q", got)
 	}
 }
 
@@ -103,8 +130,17 @@ func TestMaskAddress(t *testing.T) {
 	text := "Москва, ул. Тверская, д. 1"
 	s := spanFor(text, "Москва, ул. Тверская, д. 1")
 	got := MaskAddress(text, s)
-	if got != "Москва, ул. ******, д. **" {
-		t.Fatalf("expected Москва, ул. ******, д. **, got %q", got)
+	if got != "Москва, ул. Т*******, д. *" {
+		t.Fatalf("expected Москва, ул. Т*******, д. *, got %q", got)
+	}
+}
+
+func TestMaskAddressOtherCity(t *testing.T) {
+	text := "Казань, пр. Победы, д. 25"
+	s := spanFor(text, "Казань, пр. Победы, д. 25")
+	got := MaskAddress(text, s)
+	if got != "Казань, пр. П*****, д. **" {
+		t.Fatalf("expected Казань, пр. П*****, д. **, got %q", got)
 	}
 }
 

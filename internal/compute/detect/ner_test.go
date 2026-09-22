@@ -55,3 +55,58 @@ func TestDetectCitizenship(t *testing.T) {
 		t.Fatalf("expected citizenship span, got %+v", spans)
 	}
 }
+
+func TestDetectTwoWordFIOWithMarker(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("Клиент Иванов Иван")
+	found := false
+	for _, s := range spans {
+		if s.Type == "fio" && s.Source == "ner" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 2-word fio span, got %+v", spans)
+	}
+}
+
+func TestDetectTwoWordFIONoMarker(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("Иванов Иван")
+	for _, s := range spans {
+		if s.Type == "fio" {
+			t.Fatalf("expected no fio span without marker, got %+v", spans)
+		}
+	}
+}
+
+func TestDetectAddressComponents(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("г. Москва, ул. Тверская, д. 1, кв. 5")
+	found := false
+	for _, s := range spans {
+		if s.Type == "address" && s.Source == "ner" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected address span, got %+v", spans)
+	}
+}
+
+func TestDetectDedupTypeCollision(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("Клиент Иванов Иван")
+	seen := map[[2]int]struct{}{}
+	for _, s := range spans {
+		key := [2]int{s.Start, s.End}
+		if _, ok := seen[key]; ok {
+			t.Fatalf("duplicate span at %+v in %+v", key, spans)
+		}
+		seen[key] = struct{}{}
+	}
+}
