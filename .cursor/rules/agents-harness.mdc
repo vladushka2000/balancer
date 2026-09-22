@@ -1,0 +1,18 @@
+---
+description: Agent harness — read AGENTS.md first; verify; update progress
+alwaysApply: true
+---
+
+# Agent harness
+
+1. Before any work, read and follow [`AGENTS.md`](AGENTS.md).
+2. Specs: [`main.md`](main.md) (contract), [`plan.md`](plan.md) (implementation),
+   [`balancer.md`](balancer.md) (gateway practices). Do not paste them into rules.
+3. Prefer small scoped diffs. No unrelated refactors or dependency churn.
+4. Verify with commands from AGENTS.md; completion requires **observed** output.
+5. Multi-step: update [`agent-progress.md`](agent-progress.md) (or
+   `logs/agent-progress-<track>.md`) and keep [`feature_list.json`](feature_list.json)
+   in sync when glue moves a feature.
+6. Parallel agents: exclusive globs in [`docs/agents/OWNERSHIP.md`](docs/agents/OWNERSHIP.md);
+   one git worktree per agent.
+7. [`CLAUDE.md`](CLAUDE.md) is a shim only — not a second rulebook.

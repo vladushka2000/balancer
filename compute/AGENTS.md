@@ -1,151 +1,38 @@
-# NEW_AGENTS.md
+# AGENTS.md — compute/
 
-## Purpose
+Rust engine for PII module. Parent rules: root [`AGENTS.md`](../AGENTS.md).
 
-Модуль безопасности персональных данных (PII-guard): сервис идентификации,
-маскирования и демаскирования ПД в запросах к LLM. Репозиторий использует
-agent harness — эти правила обеспечивают надёжную работу AI-ассистента между
-сессиями. Прочитай этот файл до любых других действий.
+## Role
 
-## Архитектура (кратко)
+Detect → context → merge → etalon partial mask → vault (`payload_id`).
+Admin `/systems`, `/stats`. Demask = store lookup (no detect semaphore).
 
-Дополняй по мере создания новых файлов
+## Module map
 
-## Core principles
-
-1. Ограничивай поведение явными правилами и границами.
-2. Сохраняй контекст между длинными и мульти-сессионными задачами.
-3. Не объявляй победу преждевременно.
-4. Проверяй работу релевантными тестами (видел вывод, не «должно работать»).
-5. Делай runtime-состояние наблюдаемым (структурированные логи без значений ПД,
-   `/stats`).
-6. Предпочитай маленькие обратимые изменения.
-7. Держись в рамках запрошенной задачи.
-8. Уточняй требования при неоднозначности.
-
-## Workflow
-
-1. Прочитай этот файл.
-2. Кратко переформулируй задачу.
-3. Найди концепцию в lookup-таблице ниже → перейди к соответствующему файлу
-   в коде. Подтверди символы.
-4. Составь короткий план.
-5. Реализуй минимальное корректное изменение.
-6. Запусти релевантные проверки, inspected вывод.
-7. Обнови `agent-progress.md` и `feature_list.json` при необходимости.
-8. Только после этого — задача завершена.
-
-## Editing policy
-
-- Избегай нерелевантных рефакторингов.
-- Не меняй зависимости без явного запроса.
-- Сохраняй существующие конвенции проекта.
-- Держи diff минимальным и понятным.
-- Не переформатируй большие области кода без нужды.
-- **Без комментариев в коде** (требование хакатона).
-
-## Code quality policy
-
-Код обязан соответствовать критериям качества. Перед завершением задачи
-проверь изменения на следующие нарушения и исправь их:
-
-- **Code complexity** — избегай избыточной вложенности, длинных функций,
-  глубоких ветвлений и «божественных» объектов. Разбивай на маленькие
-  функции с одной ответственностью.
-- **DRY (Don't Repeat Yourself)** — не дублируй логику; выноси общее в
-  переиспользуемые функции/хелперы.
-- **KISS (Keep It Simple, Stupid)** — предпочитай простые решения сложным;
-  не добавляй абстракции, пока они не нужны.
-- **Deprecated API и зависимости** — не используй устаревшие классы,
-  методы, трейты и крейты; не добавляй зависимости без явного запроса.
-- **Грязный код** — не оставляй мёртвый код, закомментированные блоки,
-  неиспользуемые импорты/переменные, магические числа без констант,
-  нечитаемые имена.
-- **Идиоматичность** — следуй конвенциям языка (Rust: `cargo clippy`,
-  `cargo fmt`; Go: `gofmt`, `go vet`), принятым в проекте.
-- **Обработка ошибок** — не глотай ошибки (`unwrap`/`expect`/`panic` без
-  обоснования), корректно пробрасывай и логируй их.
-
-## Verification policy
-
-- Всегда запускай наиболее релевантные тесты для изменённой области.
-- Проверка считается только если **видел** вывод команды.
-- Если изменение может сломать существующее поведение — сначала обнови тесты.
-- Если проверка не прошла — остановись и сообщи о проблеме.
-- Прогоняй линтеры/форматтеры (`cargo clippy`, `cargo fmt --check`,
-  `gofmt`, `go vet`) и исправляй замечания по качеству кода.
-
-### Commands
-
-| Area | Command |
+| Path | Responsibility |
 |---|---|
-| Rust compute — сборка | `cd compute && cargo build` |
-| Rust compute — тесты | `cd compute && cargo test` |
-| Rust compute — тесты детекторов | `cargo test test_structural test_ner test_context test_merge` |
-| Rust compute — тесты маскирования | `cargo test test_mask` |
-| Rust compute — тесты хранилища | `cargo test test_store` |
-| Rust compute — e2e | `cargo test test_e2e` |
-| Интеграция (compose) | `docker compose up --build` |
+| `src/detect/structural.rs` | Regex + checksums |
+| `src/detect/ner.rs` | Dict/regex FIO, address, orgs |
+| `src/detect/context.rs` | Pushkin / bank branch gate |
+| `src/detect/merge.rs` | Overlaps + PIN gate |
+| `src/mask/` | Partial rules, masker |
+| `src/store.rs`, `keys.rs` | Correspondence vault |
+| `src/pipeline.rs` | Orchestration |
+| `src/routers/process.rs` | `/process` |
+| `src/routers/admin.rs` | `/systems` `/stats` `/health` `/clear` |
+| `src/stats.rs` | mean/p50/p95/p99, mask_ok/demask_ok |
+| `src/ratelimit.rs` | Detect concurrency semaphore |
 
-## State management
+## Commands
 
-- Для многошаговой работы обновляй `agent-progress.md`.
-- Синхронизируй scope фич с `feature_list.json`.
-- Фиксируй блокеры, частичный прогресс, результаты проверок.
-- Не полагайся только на контекст чата в длинных задачах.
+```bash
+cd compute && cargo test
+cd compute && cargo clippy -- -D warnings && cargo fmt --check
+```
 
-## Completion criteria
+## Boundaries
 
-Задача завершена, когда:
-
-- запрошенное изменение реализовано,
-- релевантные проверки прошли (с видимым выводом),
-- прогресс обновлён, если работа заняла более одного шага,
-- нет известных блокеров.
-
-## Stop conditions
-
-Остановись и спроси, если:
-
-- scope задачи неясен,
-- изменение конфликтует с архитектурой без явного решения изменить её,
-- требуется деструктивная или рискованная операция,
-- проверка не может быть завершена безопасно.
-
-## Shared
-
-- `api/` и `compute/` — независимые проекты в одном репо.
-- Контракт между ними заморожен: `ProcessRequest`, `ProcessResponse`.
-- `docker-compose.yml` поднимает Redis + api + compute вместе.
-
-## Key concepts quick lookup
-
-| Если задача упоминает… | Код |
-|---|---|
-| детектор, regex, валидация, Луна, ИНН, СНИЛС | `compute/src/detect/structural.rs` |
-| NER, ФИО, адреса, органы, чанки, spawn_blocking | `compute/src/detect/ner.rs` |
-| контекстное правило, Пушкин ≠ ПД, маркеры | `compute/src/detect/context.rs` |
-| merge спанов, пересечения, ПИН-гейт | `compute/src/detect/merge.rs` |
-| маскирование, partial/fpe/synthetic/redact | `compute/src/mask/` |
-| rate limiter, token bucket, RPS, 429 | `api/internal/ratelimit/bucket.go` |
-| concurrency semaphore, max_concurrent | `compute/src/ratelimit.rs` |
-| Redis, payload_id, соответствие, TTL | `compute/src/store.rs`, `keys.rs` |
-| SystemConfig, admin-API, /systems | `compute/src/routers/admin.rs`, `repo.rs` |
-| /stats, RPS, latency, TPS | `compute/src/stats.rs` |
-| идемпотентность, ретраи, направление | `compute/src/store.rs` (`lookup`) |
-| POST /process, контракт, 422/429/502/504 | `api/internal/handler/process.go`, `compute/src/routers/process.rs` |
-| Go api, форвард, X-Payload-Id | `api/internal/forwarder/forwarder.go` |
-| Rust compute, pipeline, detect→mask | `compute/src/pipeline.rs` |
-| docker-compose, деплой | `docker-compose.yml` |
-| env vars, конфиги | `api/internal/config/config.go`, `compute/src/config.rs` |
-| multi-instance, M api × N compute | (архитектурный чек-лист) |
-
-## Rules
-
-1. **Без комментариев** в Go и Rust коде.
-2. **Контракт заморожен.** `ProcessRequest`/`ProcessResponse` не меняются без
-   явного решения.
-3. **Код — первичный источник.** Если промпт расходится с кодом — уточни у
-   пользователя, не молчи.
-4. **Качество кода.** Соблюдай Code quality policy: без code complexity,
-   нарушений DRY/KISS, deprecated API/зависимостей и грязного кода.
+- Respect track globs (B detect / C mask / D store / E glue). See `docs/agents/OWNERSHIP.md`.
+- Put Redis **before** 200 on new mask. No PII in logs.
+- No comments in code. No `todo!()` on `/process` path in release.
+- FPE/synthetic — after must features green.

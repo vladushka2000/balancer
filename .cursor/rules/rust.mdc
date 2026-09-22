@@ -1,0 +1,14 @@
+---
+description: Rust compute — detect mask vault; no PII in logs
+globs: compute/**/*.rs
+alwaysApply: false
+---
+
+# Rust compute
+
+- Owns detect, mask, correspondence store, admin, stats.
+- Put to Redis **before** 200 on new mask. Demask/lookup skips detect semaphore.
+- Partial etalon-style masks on hot path; FPE/synthetic after must.
+- Logs/metrics: types and offsets only — never PII values.
+- No comments in code. `cargo clippy -- -D warnings` + `cargo fmt --check`.
+- Respect track globs (detect / mask / store). See `docs/agents/OWNERSHIP.md`.
