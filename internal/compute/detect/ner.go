@@ -3,6 +3,7 @@ package detect
 import (
 	"embed"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -63,15 +64,30 @@ func (n *NERDetector) Preload() {
 func (n *NERDetector) Detect(text string) []models.Span {
 	chunks := chunkText(text, n.chunkChars, n.overlap)
 	results := make([][]models.Span, len(chunks))
-	var wg sync.WaitGroup
-	for i, c := range chunks {
-		wg.Add(1)
-		go func(i int, c chunk) {
-			defer wg.Done()
-			results[i] = n.detectChunk(c)
-		}(i, c)
+	if len(chunks) == 1 {
+		results[0] = n.detectChunk(chunks[0])
+	} else {
+		workers := len(chunks)
+		if ncpu := runtime.NumCPU(); workers > ncpu {
+			workers = ncpu
+		}
+		var wg sync.WaitGroup
+		ch := make(chan int)
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := range ch {
+					results[i] = n.detectChunk(chunks[i])
+				}
+			}()
+		}
+		for i := range chunks {
+			ch <- i
+		}
+		close(ch)
+		wg.Wait()
 	}
-	wg.Wait()
 
 	seen := map[spanKey]struct{}{}
 	var spans []models.Span

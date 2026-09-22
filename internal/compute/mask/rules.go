@@ -173,26 +173,23 @@ func MaskWord(text string, s models.Span) string {
 	return strings.Join(out, " ")
 }
 
-// MaskRules returns the type-to-mask-function map.
-func MaskRules() map[string]func(string, models.Span) string {
-	return map[string]func(string, models.Span) string{
-		"passport":        MaskPassport,
-		"driver_license":  MaskDriverLicense,
-		"inn":             MaskINN,
-		"snils":           MaskSNILS,
-		"phone":           MaskPhone,
-		"email":           MaskEmail,
-		"card":            MaskCard,
-		"cvv":             MaskCVV,
-		"pin":             MaskPIN,
-		"birth_date":      MaskDate,
-		"issue_date":      MaskDate,
-		"postal_code":     MaskPostalCode,
-		"department_code": MaskDepartmentCode,
-		"address":         MaskAddress,
-		"fio":             MaskFIO,
-		"org":             MaskDefault,
-		"birth_place":     MaskWord,
-		"citizenship":     MaskWord,
-	}
+var maskRules = map[string]func(string, models.Span) string{
+	"passport":        MaskPassport,
+	"driver_license":  MaskDriverLicense,
+	"inn":             MaskINN,
+	"snils":           MaskSNILS,
+	"phone":           MaskPhone,
+	"email":           MaskEmail,
+	"card":            MaskCard,
+	"cvv":             MaskCVV,
+	"pin":             MaskPIN,
+	"birth_date":      MaskDate,
+	"issue_date":      MaskDate,
+	"postal_code":     MaskPostalCode,
+	"department_code": MaskDepartmentCode,
+	"address":         MaskAddress,
+	"fio":             MaskFIO,
+	"org":             MaskDefault,
+	"birth_place":     MaskWord,
+	"citizenship":     MaskWord,
 }

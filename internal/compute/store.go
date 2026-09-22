@@ -3,6 +3,7 @@ package compute
 import (
 	"container/list"
 	"context"
+	"crypto/cipher"
 	"encoding/json"
 	"sync"
 	"time"
@@ -18,7 +19,7 @@ type Store struct {
 	ns     string
 	ttl    time.Duration
 	cache  *lruCache
-	encKey []byte
+	gcm    cipher.AEAD
 	mu     sync.Mutex
 	hits   uint64
 	misses uint64
@@ -26,12 +27,16 @@ type Store struct {
 
 // NewStore creates a correspondence store.
 func NewStore(rdb *redis.Client, ns string, ttl time.Duration, cacheMax int, encKey []byte) *Store {
+	gcm, err := newAEAD(encKey)
+	if err != nil {
+		gcm = nil
+	}
 	return &Store{
-		rdb:    rdb,
-		ns:     ns,
-		ttl:    ttl,
-		cache:  newLRUCache(cacheMax),
-		encKey: encKey,
+		rdb:   rdb,
+		ns:    ns,
+		ttl:   ttl,
+		cache: newLRUCache(cacheMax),
+		gcm:   gcm,
 	}
 }
 
@@ -53,7 +58,7 @@ func (s *Store) Get(ctx context.Context, payloadID string) (*models.CorrRecord, 
 	if err != nil {
 		return nil, err
 	}
-	plain, err := decrypt([]byte(raw), s.encKey)
+	plain, err := decrypt([]byte(raw), s.gcm)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +82,7 @@ func (s *Store) Put(ctx context.Context, payloadID, original, mask string, types
 	if err != nil {
 		return err
 	}
-	enc, err := encrypt(plain, s.encKey)
+	enc, err := encrypt(plain, s.gcm)
 	if err != nil {
 		return err
 	}

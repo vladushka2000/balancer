@@ -14,17 +14,20 @@ func deriveKey(secret []byte) []byte {
 	return sum[:]
 }
 
-func encrypt(plain, secret []byte) ([]byte, error) {
+func newAEAD(secret []byte) (cipher.AEAD, error) {
 	if len(secret) == 0 {
-		return plain, nil
+		return nil, nil
 	}
 	block, err := aes.NewCipher(deriveKey(secret))
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
+	return cipher.NewGCM(block)
+}
+
+func encrypt(plain []byte, gcm cipher.AEAD) ([]byte, error) {
+	if gcm == nil {
+		return plain, nil
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -33,17 +36,9 @@ func encrypt(plain, secret []byte) ([]byte, error) {
 	return gcm.Seal(nonce, nonce, plain, nil), nil
 }
 
-func decrypt(data, secret []byte) ([]byte, error) {
-	if len(secret) == 0 {
+func decrypt(data []byte, gcm cipher.AEAD) ([]byte, error) {
+	if gcm == nil {
 		return data, nil
-	}
-	block, err := aes.NewCipher(deriveKey(secret))
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
 	}
 	if len(data) < gcm.NonceSize() {
 		return nil, errors.New("ciphertext too short")

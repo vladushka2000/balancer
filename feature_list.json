@@ -153,6 +153,37 @@
         "python demo/selfcheck.py --url http://localhost:8080"
       ],
       "notes": "Plus only."
+    },
+    {
+      "id": "cpu-optimizations",
+      "title": "CPU-intensive optimizations (equivalent results)",
+      "status": "done",
+      "passes": true,
+      "priority": "high",
+      "owner": "glue",
+      "write_globs": [
+        "internal/compute/mask/masker.go",
+        "internal/compute/mask/rules.go",
+        "internal/compute/processor.go",
+        "internal/compute/crypto.go",
+        "internal/compute/store.go",
+        "internal/compute/stats.go",
+        "internal/compute/detect/ner.go",
+        "internal/compute/detect/context.go",
+        "internal/compute/detect/structural.go"
+      ],
+      "scope": "Per optimize.md: O(n) masker, package-level maskRules, allocation-free tokenCount, cached AEAD, window trim, NER worker pool, single ToLower, reduced bucketMu critical section, cardRe + extractDigits.",
+      "acceptance_criteria": [
+        "Detected spans and masks unchanged (equivalent results)",
+        "No new deps, no comments added"
+      ],
+      "verification": [
+        "go build ./...",
+        "go vet ./...",
+        "gofmt -l .",
+        "go test ./..."
+      ],
+      "notes": "All 10 items from optimize.md; checks green."
     }
   ]
 }

@@ -98,6 +98,22 @@ Smoke-test (Redis на :6390): mask → demask roundtrip 100%, `mask_ok == demas
   - Gate: mask_ok == demask_ok, roundtrip_fail == 0, p99 ≤ 1с.
 - Проверено на mock-сервере: mask_ok == demask_ok, roundtrip_fail == 0, LOAD OK.
 
+### Оптимизация CPU-intensive операций (2026-09-22)
+
+По [`optimize.md`](optimize.md), все правки эквивалентны по результату (спаны/маски не меняются):
+
+- `mask/masker.go` — `Apply` O(n²) → O(n): спаны по возрастанию Start, один проход, один `strings.Builder`.
+- `mask/rules.go` — `MaskRules()` → package-level `var maskRules` (map только читается).
+- `compute/processor.go` — `tokenCount` byte-цикл без аллокаций (убрал `strings`).
+- `compute/crypto.go` + `store.go` — AEAD (GCM) кэшируется один раз в `Store`; `encrypt`/`decrypt` принимают готовый AEAD.
+- `compute/stats.go` — `RecordTokens` триммит `window` старше 1с (нет memory leak).
+- `detect/ner.go` — 1 chunk синхронно; много chunks — bounded worker pool (`min(len, NumCPU)`).
+- `detect/context.go` — `windowOf` считает `ToLower` один раз; `hasStructural`/`hasOrgMarker` принимают window.
+- `compute/processor.go` — Redis `AliveCount` вынесен из-под `bucketMu` (снижен контеншн).
+- `detect/structural.go` — `cardRe` без вложенного квантора; `strings.Map` → `extractDigits` byte-цикл.
+
+Verification: `go build ./...`, `go vet ./...`, `gofmt -l .` (clean), `go test ./...` — все зелёные.
+
 ## Дальше
 
 1. Трек 8: финальный `go vet`/`gofmt`, сухой прогон `pack.sh`.

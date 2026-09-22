@@ -108,6 +108,14 @@ func (s *Stats) RecordTokens(types []string, latencyMs float64, dir Direction, t
 	s.tokensTotal += uint64(tokens)
 	now := time.Now()
 	s.window = append(s.window, now)
+	cutoff := now.Add(-time.Second)
+	keep := 0
+	for keep < len(s.window) && !s.window[keep].After(cutoff) {
+		keep++
+	}
+	if keep > 0 {
+		s.window = s.window[keep:]
+	}
 	if dir == DirectionMask {
 		s.maskOK++
 	} else {

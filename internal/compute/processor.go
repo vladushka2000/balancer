@@ -3,7 +3,6 @@ package compute
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"time"
 )
@@ -65,8 +64,8 @@ func (p *Processor) Process(ctx context.Context, payload, payloadID string) (str
 		return result, nil
 	}
 
-	p.bucketMu.Lock()
 	p.adjustBucket(ctx)
+	p.bucketMu.Lock()
 	ok := p.bucket.Acquire()
 	p.bucketMu.Unlock()
 	if !ok {
@@ -100,16 +99,31 @@ func (p *Processor) adjustBucket(ctx context.Context) {
 	if perInstance < 1 {
 		perInstance = 1
 	}
+	p.bucketMu.Lock()
 	if int(p.bucket.capacity) != perInstance {
 		p.bucket = NewTokenBucket(perInstance, perInstance)
 	}
+	p.bucketMu.Unlock()
 }
 
 func tokenCount(s string) int {
 	if s == "" {
 		return 0
 	}
-	return len(strings.Fields(s))
+	count := 0
+	inWord := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			inWord = false
+		default:
+			if !inWord {
+				count++
+				inWord = true
+			}
+		}
+	}
+	return count
 }
 
 func elapsedMs(start time.Time) float64 {

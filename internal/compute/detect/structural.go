@@ -16,7 +16,7 @@ var (
 	snilsRe          = regexp.MustCompile(`\b(\d{3})-(\d{3})-(\d{3})\s?(\d{2})\b`)
 	phoneRe          = regexp.MustCompile(`(?:\+7|8)\s?[\(]?\d{3}[\)]?\s?\d{3}[-\s]?\d{2}[-\s]?\d{2}`)
 	emailRe          = regexp.MustCompile(`[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`)
-	cardRe           = regexp.MustCompile(`\b(\d{4}[\s-]?){3}\d{4}\b`)
+	cardRe           = regexp.MustCompile(`\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b`)
 	cvvRe            = regexp.MustCompile(`(?i)(?:cvv|cvc|код безопасности).{0,10}?(\d{3}|\d{4})`)
 	pinRe            = regexp.MustCompile(`(?i)(?:пин|pin).{0,15}?(\d{4})`)
 	dateRe           = regexp.MustCompile(`\b(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})\b`)
@@ -152,12 +152,7 @@ type CardDetector struct{}
 func (CardDetector) Detect(text string) []models.Span {
 	var spans []models.Span
 	for _, m := range cardRe.FindAllStringIndex(text, -1) {
-		digits := strings.Map(func(r rune) rune {
-			if r >= '0' && r <= '9' {
-				return r
-			}
-			return -1
-		}, text[m[0]:m[1]])
+		digits := extractDigits(text[m[0]:m[1]])
 		if !validLuhn(digits) {
 			continue
 		}
@@ -284,6 +279,16 @@ func CreateStructuralRegistry() *Registry {
 func validRegion(s string) bool {
 	n, err := strconv.Atoi(s)
 	return err == nil && n >= 1 && n <= 99
+}
+
+func extractDigits(s string) string {
+	buf := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			buf = append(buf, s[i])
+		}
+	}
+	return string(buf)
 }
 
 func validLuhn(digits string) bool {

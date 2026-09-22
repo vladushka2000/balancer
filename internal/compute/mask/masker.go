@@ -25,29 +25,28 @@ func (m *Masker) Apply(text string, spans []models.Span) string {
 	sorted := make([]models.Span, len(spans))
 	copy(sorted, spans)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Start > sorted[j].Start
+		return sorted[i].Start < sorted[j].Start
 	})
 
-	rules := MaskRules()
 	var b strings.Builder
-	b.WriteString(text)
+	b.Grow(len(text))
+	prev := 0
 	for _, s := range sorted {
 		var replacement string
 		switch m.mode {
 		case "redact":
 			replacement = "[" + strings.ToUpper(s.Type) + "]"
 		default:
-			if fn, ok := rules[s.Type]; ok {
+			if fn, ok := maskRules[s.Type]; ok {
 				replacement = fn(text, s)
 			} else {
 				replacement = MaskDefault(text, s)
 			}
 		}
-		b.Reset()
-		b.WriteString(text[:s.Start])
+		b.WriteString(text[prev:s.Start])
 		b.WriteString(replacement)
-		b.WriteString(text[s.End:])
-		text = b.String()
+		prev = s.End
 	}
-	return text
+	b.WriteString(text[prev:])
+	return b.String()
 }
