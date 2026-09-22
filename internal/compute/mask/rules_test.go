@@ -116,3 +116,12 @@ func TestMaskDefault(t *testing.T) {
 		t.Fatalf("expected masked, got %q", got)
 	}
 }
+
+func TestMaskWord(t *testing.T) {
+	text := "Российская Федерация"
+	s := spanFor(text, "Российская Федерация")
+	got := MaskWord(text, s)
+	if got != "Р********* Ф********" {
+		t.Fatalf("expected Р********* Ф********, got %q", got)
+	}
+}

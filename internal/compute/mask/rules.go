@@ -135,6 +135,20 @@ func MaskDefault(text string, s models.Span) string {
 	})
 }
 
+// MaskWord keeps the first letter of each word and masks the rest.
+func MaskWord(text string, s models.Span) string {
+	words := strings.Fields(text[s.Start:s.End])
+	var out []string
+	for _, w := range words {
+		r := []rune(w)
+		if len(r) == 0 {
+			continue
+		}
+		out = append(out, string(r[0])+strings.Repeat("*", len(r)-1))
+	}
+	return strings.Join(out, " ")
+}
+
 // MaskRules returns the type-to-mask-function map.
 func MaskRules() map[string]func(string, models.Span) string {
 	return map[string]func(string, models.Span) string{
@@ -154,5 +168,7 @@ func MaskRules() map[string]func(string, models.Span) string {
 		"address":         MaskAddress,
 		"fio":             MaskFIO,
 		"org":             MaskDefault,
+		"birth_place":     MaskWord,
+		"citizenship":     MaskWord,
 	}
 }

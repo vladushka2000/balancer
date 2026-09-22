@@ -37,3 +37,21 @@ func TestDetectDedup(t *testing.T) {
 		seen[key] = struct{}{}
 	}
 }
+
+func TestDetectBirthPlace(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("Место рождения: Москва")
+	if len(spans) != 1 || spans[0].Type != "birth_place" {
+		t.Fatalf("expected birth_place span, got %+v", spans)
+	}
+}
+
+func TestDetectCitizenship(t *testing.T) {
+	n := NewNERDetector(4000, 200)
+	n.Preload()
+	spans := n.Detect("Гражданство: Российская Федерация")
+	if len(spans) != 1 || spans[0].Type != "citizenship" {
+		t.Fatalf("expected citizenship span, got %+v", spans)
+	}
+}

@@ -1,0 +1,187 @@
+openapi: 3.0.3
+info:
+  title: PII-guard
+  description: Маскирование/демаскирование персональных данных в цепочке consumer → LLM.
+  version: 1.0.0
+paths:
+  /process:
+    post:
+      summary: Обработка payload (маскирование или демаскирование)
+      description: >
+        Направление определяется по payload_id: первый запрос с новым
+        payload_id — маскирование; повторный с тем же payload_id и нашим
+        result — демаскирование.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessRequest'
+      responses:
+        '200':
+          description: Успех (маска или демаска)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessResponse'
+        '422':
+          description: Нет или битое тело (payload/payload_id отсутствуют)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Перегруз rate limiter
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Внутренняя ошибка compute
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /app/health:
+    get:
+      summary: Проверка готовности
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /systems:
+    get:
+      summary: Список конфигураций систем
+      responses:
+        '200':
+          description: Список SystemConfig
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SystemConfig'
+    post:
+      summary: Сохранить конфигурацию системы
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemConfig'
+      responses:
+        '200':
+          description: Сохранено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+  /stats:
+    get:
+      summary: Метрики сервиса
+      responses:
+        '200':
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+  /clear:
+    post:
+      summary: Сброс кэшей конфигов
+      responses:
+        '200':
+          description: Кэши сброшены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+components:
+  schemas:
+    ProcessRequest:
+      type: object
+      required:
+        - payload
+        - payload_id
+      properties:
+        payload:
+          type: string
+        payload_id:
+          type: string
+    ProcessResponse:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        redis:
+          type: boolean
+        role:
+          type: string
+    SystemConfig:
+      type: object
+      properties:
+        system_id:
+          type: string
+        enabled:
+          type: boolean
+        types:
+          type: string
+        mask_mode:
+          type: string
+        demask_enabled:
+          type: boolean
+    Stats:
+      type: object
+      properties:
+        rps:
+          type: number
+        latency_mean_ms:
+          type: number
+        latency_p50_ms:
+          type: number
+        latency_p95_ms:
+          type: number
+        latency_p99_ms:
+          type: number
+        tokens_per_sec:
+          type: number
+        detections_by_type:
+          type: object
+          additionalProperties:
+            type: integer
+        cache_hit_rate:
+          type: number
+        count_429:
+          type: integer
+        mask_ok:
+          type: integer
+        demask_ok:
+          type: integer
+        requests_total:
+          type: integer
+        corr_store_size:
+          type: integer
+    Status:
+      type: object
+      properties:
+        status:
+          type: string

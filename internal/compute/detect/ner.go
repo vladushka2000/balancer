@@ -13,10 +13,12 @@ import (
 var dictFS embed.FS
 
 var (
-	fioRe       = regexp.MustCompile(`[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){2,}`)
-	addressRe   = regexp.MustCompile(`(?i)(?:г\.|ул\.|пр\.|пер\.|бульвар|проспект)\s+[А-Яа-яЁё0-9.,\s-]+`)
-	orgRe       = regexp.MustCompile(`(?i)(?:выдан|отделение|уфмс|мвд|гу)\s+[А-Яа-яЁё0-9.,\s-]+`)
-	orgMarkerRe = regexp.MustCompile(`(?i)выдан|отделение|уфмс|мвд|гу`)
+	fioRe         = regexp.MustCompile(`[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){2,}`)
+	addressRe     = regexp.MustCompile(`(?i)(?:г\.|ул\.|пр\.|пер\.|бульвар|проспект)\s+[А-Яа-яЁё0-9.,\s-]+`)
+	orgRe         = regexp.MustCompile(`(?i)(?:выдан|отделение|уфмс|мвд|гу)\s+[А-Яа-яЁё0-9.,\s-]+`)
+	orgMarkerRe   = regexp.MustCompile(`(?i)выдан|отделение|уфмс|мвд|гу`)
+	birthPlaceRe  = regexp.MustCompile(`(?i)(?:место рождения|родился|родилась)\s*[:]?\s*[А-Яа-яЁё][А-Яа-яЁё\s-]+`)
+	citizenshipRe = regexp.MustCompile(`(?i)(?:гражданство|гражданин)\s*[:]?\s*[А-Яа-яЁё][А-Яа-яЁё\s-]+`)
 )
 
 // NERDetector finds FIO, addresses and issuing organs via regex+dict.
@@ -131,6 +133,16 @@ func (n *NERDetector) detectChunk(c chunk) []models.Span {
 		}
 		spans = append(spans, models.Span{
 			Start: c.offset + m[0], End: c.offset + m[1], Type: "org", Confidence: 0.7, Source: "ner",
+		})
+	}
+	for _, m := range birthPlaceRe.FindAllStringIndex(c.text, -1) {
+		spans = append(spans, models.Span{
+			Start: c.offset + m[0], End: c.offset + m[1], Type: "birth_place", Confidence: 0.7, Source: "ner",
+		})
+	}
+	for _, m := range citizenshipRe.FindAllStringIndex(c.text, -1) {
+		spans = append(spans, models.Span{
+			Start: c.offset + m[0], End: c.offset + m[1], Type: "citizenship", Confidence: 0.7, Source: "ner",
 		})
 	}
 	return spans

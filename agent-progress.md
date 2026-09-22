@@ -57,6 +57,23 @@
 - Словари в `internal/compute/detect/dicts/` (embed): famous.txt (20), org_addresses.txt (13), markers.txt (16), months.txt (12).
 - Тесты `rules_test.go` + `masker_test.go` — зелёные.
 
+### Трек 6 (интеграция: compose + selfcheck + OpenAPI + pack, 2026-09-22)
+
+- `docker-compose.yml` — redis + server (Go), env `REDIS_URL`/`PII_RPS_TARGET`/`PII_APP_PORT`.
+- `Dockerfile` — multi-stage `golang:1.27-alpine` → `alpine:3.19`, `CGO_ENABLED=0`.
+- `demo/selfcheck.py` — покрытие типов ТЗ, roundtrip 100%, FP (Пушкин/отделение/голая дата/ПИН без карты), регистр.
+- `process_api.yaml` — OpenAPI-спека контракта (§5.1).
+- `scripts/pack.sh` — zip только исходников (без target/.git/__pycache__/бинарников).
+- `README.md` — переписан на 5 предложений (compose, `/process`, `/systems`, env, ПД не логируются).
+
+### Трек 6: закрытие пробелов детекции (2026-09-22)
+
+Selfcheck выявил, что «место рождения» и «гражданство» (типы ТЗ) не маскировались:
+- `detect/ner.go` — добавлены `birthPlaceRe` (место рождения/родился/родилась) и `citizenshipRe` (гражданство/гражданин) → типы `birth_place`/`citizenship`.
+- `mask/rules.go` — добавлена `MaskWord` (первая буква + `*`), зарегистрированы `birth_place`/`citizenship`.
+- Тесты: `ner_test.go` (birth_place/citizenship), `rules_test.go` (MaskWord).
+- ПИН без карты — корректно не маскируется (гейт §6), перенесён в FP-кейсы selfcheck.
+
 ### Verification
 
 ```text
@@ -66,13 +83,14 @@ go vet ./...     # ok
 gofmt -l .       # clean
 ```
 
-Smoke-test (Redis на :6382): mask → demask roundtrip 100%, `mask_ok == demask_ok`, 422 на пустое тело, `/systems` + `/clear` работают.
+Smoke-test (Redis на :6390): mask → demask roundtrip 100%, `mask_ok == demask_ok`, 422 на пустое тело, `/systems` + `/clear` работают.
+`python demo/selfcheck.py` → `SELFCHECK OK` (masked 14/14, roundtrip 14/14, fp 4/4).
+`docker compose up --build` — образ собирается (порт 6379 занят локальным redis — env-конфликт, не compose).
 
 ## Дальше
 
-1. `demo/selfcheck.py` + `demo/load.py` (разгон 330→1000).
-2. `docker-compose.yml` + `Dockerfile`.
-3. `scripts/pack.sh` + README ≤5 предложений.
+1. `demo/load.py` (разгон 330→1000, mean/p50/p95/p99, mask_ok==demask_ok) — Трек 7.
+2. Трек 8: финальный `go vet`/`gofmt`, сухой прогон `pack.sh`.
 
 ## Блокеры
 
