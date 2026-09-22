@@ -176,9 +176,29 @@ Smoke-test (Redis на :6390): mask → demask roundtrip 100%, `mask_ok == demas
 
 Verification: `go build ./...`, `go vet ./...`, `gofmt -l .` (clean), `go test ./...` — все зелёные.
 
+### Трек 8 (качество кода + zip, 2026-09-22)
+
+- `gofmt -l .` — clean; `go vet ./...` — чистый; `go build ./...` — ok; `go test ./...` — все зелёные.
+- Нет `panic("todo")`, `log.Fatal`/`os.Exit` на горячем пути `/process` (только на старте сервера).
+- Нет deprecated API: redis `go-redis/v9 v9.22.0` (актуальный мажор), не используются `UnstableResp3`/`RawResult`/`RawVal`/`DisableIdentity`.
+- Нет закомментированного кода; только пакетные `//`-доки (допустимы). `redact`-режим маскера — только в тестах, не на горячем пути (main использует `partial`).
+- DRY: детекторы используют общий `Detector` interface + `Registry` в `base.go`; валидаторы (Luhn/ИНН/СНИЛС/дата) вынесены в хелперы; regex — package-level vars.
+- `scripts/pack.sh` — добавлены исключения `ds.pdf`, `ds.md`, `demo/__pycache__/` (датасет/бинарник/кэш не должны попадать в zip).
+- Сухой прогон: распакованный zip собирается (`go build`), проходит `go vet`, все тесты зелёные; размер 117K, без `target/`, `.git`, бинарников, датасетов.
+- `README.md` — 1 предложение (≤5).
+
+### Трек 8: фикс замечаний аудита (2026-09-23)
+
+- `cmd/server/main.go` — удалён мёртвый конфиг `rpsTarget` и чтение `PII_RPS_TARGET`
+  (поле не использовалось; реальный bucket строится из `PII_GLOBAL_RPS`).
+- `docker-compose.yml` — добавлен `PII_STORE_KEY` во все 3 server-сервиса
+  (иначе AES-GCM шифрование original/mask в Redis отключалось).
+- Проверено: `go build`/`go vet`/`gofmt` clean, `go test ./...` зелёные,
+  `docker compose config` валиден.
+
 ## Дальше
 
-1. Трек 8: финальный `go vet`/`gofmt`, сухой прогон `pack.sh`.
+1. Финальный прогон `docker compose up --build` + `selfcheck.py` + `load.py` перед сдачей.
 
 ## Блокеры
 

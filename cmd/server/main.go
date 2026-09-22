@@ -22,7 +22,6 @@ import (
 type serverConfig struct {
 	appHost    string
 	appPort    int
-	rpsTarget  int
 	computeCfg compute.Config
 	storeKey   string
 }
@@ -31,7 +30,6 @@ func loadServerConfig() serverConfig {
 	cfg := serverConfig{
 		appHost:    "0.0.0.0",
 		appPort:    8080,
-		rpsTarget:  1500,
 		computeCfg: compute.LoadConfig(),
 	}
 	if v := os.Getenv("PII_APP_HOST"); v != "" {
@@ -40,11 +38,6 @@ func loadServerConfig() serverConfig {
 	if v := os.Getenv("PII_APP_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.appPort = n
-		}
-	}
-	if v := os.Getenv("PII_RPS_TARGET"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.rpsTarget = n
 		}
 	}
 	cfg.storeKey = os.Getenv("PII_STORE_KEY")

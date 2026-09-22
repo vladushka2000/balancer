@@ -27,6 +27,9 @@ zip -r "$OUT" . \
   -x '*.pdb' \
   -x 'logs/*' \
   -x '.cursor/*' \
-  -x '*.zip'
+  -x '*.zip' \
+  -x 'ds.pdf' \
+  -x 'ds.md' \
+  -x 'demo/__pycache__/'
 
 echo "packed: $OUT"
