@@ -22,8 +22,8 @@ func newTestDoor(capacity int) *Door {
 		detect.NewContextRule(200),
 		mask.NewMasker("partial"),
 	)
-	proc := compute.NewProcessor(store, pipeline, sem, stats, nil)
-	return NewDoor(NewTokenBucket(capacity, capacity), proc)
+	proc := compute.NewProcessor(store, pipeline, sem, compute.NewTokenBucket(capacity, capacity), stats, nil)
+	return NewDoor(proc)
 }
 
 func TestDoorForwardSuccess(t *testing.T) {
@@ -42,7 +42,7 @@ func TestDoor429RateLimit(t *testing.T) {
 	if _, err := d.Process(context.Background(), "паспорт 4509 123456", "door-2"); err != nil {
 		t.Fatalf("first should succeed: %v", err)
 	}
-	if _, err := d.Process(context.Background(), "паспорт 4509 123456", "door-3"); err != ErrRateLimited {
+	if _, err := d.Process(context.Background(), "паспорт 4509 123456", "door-3"); err != compute.ErrRateLimited {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
 	}
 }

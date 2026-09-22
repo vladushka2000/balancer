@@ -19,6 +19,9 @@ type Store struct {
 	ttl    time.Duration
 	cache  *lruCache
 	encKey []byte
+	mu     sync.Mutex
+	hits   uint64
+	misses uint64
 }
 
 // NewStore creates a correspondence store.
@@ -35,8 +38,10 @@ func NewStore(rdb *redis.Client, ns string, ttl time.Duration, cacheMax int, enc
 // Get returns a correspondence record by payload id.
 func (s *Store) Get(ctx context.Context, payloadID string) (*models.CorrRecord, error) {
 	if rec, ok := s.cache.get(payloadID); ok {
+		s.recordHit()
 		return rec, nil
 	}
+	s.recordMiss()
 	if s.rdb == nil {
 		return nil, nil
 	}
@@ -87,23 +92,46 @@ func (s *Store) Put(ctx context.Context, payloadID, original, mask string, types
 }
 
 // Lookup resolves the direction: original→mask or mask→original.
-func (s *Store) Lookup(ctx context.Context, payloadID, payload string) (string, string, bool, error) {
+func (s *Store) Lookup(ctx context.Context, payloadID, payload string) (string, Direction, bool, error) {
 	rec, err := s.Get(ctx, payloadID)
 	if err != nil || rec == nil {
-		return "", "", false, err
+		return "", DirectionMask, false, err
 	}
 	if payload == rec.Original {
-		return rec.Mask, rec.Original, true, nil
+		return rec.Mask, DirectionMask, true, nil
 	}
 	if payload == rec.Mask {
-		return rec.Original, rec.Mask, true, nil
+		return rec.Original, DirectionDemask, true, nil
 	}
-	return "", "", false, nil
+	return "", DirectionMask, false, nil
 }
 
 // Size returns the number of cached records.
 func (s *Store) Size() int {
 	return s.cache.len()
+}
+
+func (s *Store) recordHit() {
+	s.mu.Lock()
+	s.hits++
+	s.mu.Unlock()
+}
+
+func (s *Store) recordMiss() {
+	s.mu.Lock()
+	s.misses++
+	s.mu.Unlock()
+}
+
+// CacheHitRate returns the in-memory cache hit ratio.
+func (s *Store) CacheHitRate() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := s.hits + s.misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.hits) / float64(total)
 }
 
 type lruEntry struct {

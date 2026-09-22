@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -17,16 +18,18 @@ type Processor struct {
 	store     *Store
 	pipeline  *Pipeline
 	semaphore *Semaphore
+	bucket    *TokenBucket
 	stats     *Stats
 	repo      *Repo
 }
 
 // NewProcessor builds an engine processor.
-func NewProcessor(store *Store, pipeline *Pipeline, semaphore *Semaphore, stats *Stats, repo *Repo) *Processor {
+func NewProcessor(store *Store, pipeline *Pipeline, semaphore *Semaphore, bucket *TokenBucket, stats *Stats, repo *Repo) *Processor {
 	return &Processor{
 		store:     store,
 		pipeline:  pipeline,
 		semaphore: semaphore,
+		bucket:    bucket,
 		stats:     stats,
 		repo:      repo,
 	}
@@ -36,17 +39,17 @@ func NewProcessor(store *Store, pipeline *Pipeline, semaphore *Semaphore, stats 
 func (p *Processor) Process(ctx context.Context, payload, payloadID string) (string, error) {
 	start := time.Now()
 
-	if result, _, found, err := p.store.Lookup(ctx, payloadID, payload); err != nil {
+	if result, dir, found, err := p.store.Lookup(ctx, payloadID, payload); err != nil {
 		return "", err
 	} else if found {
-		dir := DirectionDemask
-		if payload == result {
-			dir = DirectionMask
-		}
-		p.stats.Record(nil, elapsedMs(start), dir)
+		p.stats.RecordTokens(nil, elapsedMs(start), dir, tokenCount(payload))
 		return result, nil
 	}
 
+	if !p.bucket.Acquire() {
+		p.stats.Record429()
+		return "", ErrRateLimited
+	}
 	if !p.semaphore.Acquire(ctx) {
 		p.stats.Record429()
 		return "", ErrRateLimited
@@ -57,8 +60,15 @@ func (p *Processor) Process(ctx context.Context, payload, payloadID string) (str
 	if err := p.store.Put(ctx, payloadID, payload, masked, types); err != nil {
 		return "", ErrStore
 	}
-	p.stats.Record(types, elapsedMs(start), DirectionMask)
+	p.stats.RecordTokens(types, elapsedMs(start), DirectionMask, tokenCount(payload))
 	return masked, nil
+}
+
+func tokenCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	return len(strings.Fields(s))
 }
 
 func elapsedMs(start time.Time) float64 {

@@ -75,14 +75,14 @@ func main() {
 		detect.NewContextRule(cfg.computeCfg.ContextWindow),
 		mask.NewMasker("partial"),
 	)
-	proc := compute.NewProcessor(store, pipeline, sem, stats, repo)
-	door := api.NewDoor(api.NewTokenBucket(cfg.rpsTarget, cfg.rpsTarget), proc)
+	proc := compute.NewProcessor(store, pipeline, sem, compute.NewTokenBucket(cfg.rpsTarget, cfg.rpsTarget), stats, repo)
+	door := api.NewDoor(proc)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /process", processHandler(door))
 	mux.HandleFunc("GET /app/health", healthHandler(rdb))
 	mux.HandleFunc("GET /health", healthHandler(rdb))
-	mux.HandleFunc("GET /stats", statsHandler(stats))
+	mux.HandleFunc("GET /stats", statsHandler(stats, store))
 	mux.HandleFunc("POST /systems", saveSystemHandler(repo))
 	mux.HandleFunc("GET /systems", listSystemsHandler(repo))
 	mux.HandleFunc("POST /clear", clearHandler(repo))
@@ -141,9 +141,12 @@ func healthHandler(rdb *redis.Client) http.HandlerFunc {
 	}
 }
 
-func statsHandler(stats *compute.Stats) http.HandlerFunc {
+func statsHandler(stats *compute.Stats, store *compute.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, stats.Snapshot())
+		snap := stats.Snapshot()
+		snap.CacheHitRate = store.CacheHitRate()
+		snap.CorrStoreSize = store.Size()
+		writeJSON(w, http.StatusOK, snap)
 	}
 }
 

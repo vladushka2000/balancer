@@ -79,6 +79,23 @@ def check_masked(url: str, cases: list[tuple[str, str]]) -> tuple[int, int]:
     return ok, len(cases)
 
 
+def get_stats(url: str) -> dict[str, Any]:
+    """Возвращает JSON-ответ /stats."""
+    request = urllib.request.Request(url + "/stats", method="GET")
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def check_pair_invariant(url: str) -> tuple[bool, str]:
+    """Проверяет mask_ok == demask_ok и что типы залогированы в /stats."""
+    stats = get_stats(url)
+    if stats.get("mask_ok") != stats.get("demask_ok"):
+        return False, f"mask_ok={stats.get('mask_ok')} != demask_ok={stats.get('demask_ok')}"
+    if not stats.get("detections_by_type"):
+        return False, "detections_by_type пуст — типы не залогированы"
+    return True, "pair invariant ok, types logged"
+
+
 def main() -> int:
     """Запускает самопроверку и возвращает код выхода."""
     parser = argparse.ArgumentParser(description="Самопроверка PII-модуля")
@@ -101,6 +118,8 @@ def main() -> int:
         ("Карта 4111 1111 1111 1111", "pii-12"),
         ("CVV 123", "pii-13"),
         ("Держатель карты Иванов Иван Иванович", "pii-15"),
+        ("ПАСПОРТ 4509 123456", "pii-16"),
+        ("Карта 4111 1111 1111 1111, пин-код 1234", "pii-17"),
     ]
     fp_cases = [
         ("Пушкин", "fp-1"),
@@ -112,12 +131,19 @@ def main() -> int:
     masked_ok, masked_total = check_masked(url, pii_cases)
     roundtrip_ok, roundtrip_total = check_roundtrip(url, pii_cases)
     fp_ok, fp_total = check_no_pii(url, fp_cases)
+    pair_ok, pair_msg = check_pair_invariant(url)
 
     print(f"masked: {masked_ok}/{masked_total}")
     print(f"roundtrip: {roundtrip_ok}/{roundtrip_total}")
     print(f"fp: {fp_ok}/{fp_total}")
+    print(f"pair: {pair_msg}")
 
-    if masked_ok == masked_total and roundtrip_ok == roundtrip_total and fp_ok == fp_total:
+    if (
+        masked_ok == masked_total
+        and roundtrip_ok == roundtrip_total
+        and fp_ok == fp_total
+        and pair_ok
+    ):
         print("SELFCHECK OK")
         return 0
     print("SELFCHECK FAIL")
