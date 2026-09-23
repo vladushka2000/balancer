@@ -67,8 +67,17 @@ func TestMaskINN(t *testing.T) {
 	text := "7707083893"
 	s := spanFor(text, "7707083893")
 	got := MaskINN(text, s)
-	if got != "77** ****** 93" {
-		t.Fatalf("expected 77** ****** 93, got %q", got)
+	if got != "77******93" {
+		t.Fatalf("expected 77******93, got %q", got)
+	}
+}
+
+func TestMaskINN12(t *testing.T) {
+	text := "ИНН 500100732259"
+	s := spanFor(text, "ИНН 500100732259")
+	got := MaskINN(text, s)
+	if got != "ИНН 50********59" {
+		t.Fatalf("expected ИНН 50********59, got %q", got)
 	}
 }
 
@@ -130,8 +139,8 @@ func TestMaskAddress(t *testing.T) {
 	text := "Москва, ул. Тверская, д. 1"
 	s := spanFor(text, "Москва, ул. Тверская, д. 1")
 	got := MaskAddress(text, s)
-	if got != "Москва, ул. Т*******, д. *" {
-		t.Fatalf("expected Москва, ул. Т*******, д. *, got %q", got)
+	if got != "М*****, ул. Т*******, д. *" {
+		t.Fatalf("expected М*****, ул. Т*******, д. *, got %q", got)
 	}
 }
 
@@ -139,8 +148,18 @@ func TestMaskAddressOtherCity(t *testing.T) {
 	text := "Казань, пр. Победы, д. 25"
 	s := spanFor(text, "Казань, пр. Победы, д. 25")
 	got := MaskAddress(text, s)
-	if got != "Казань, пр. П*****, д. **" {
-		t.Fatalf("expected Казань, пр. П*****, д. **, got %q", got)
+	if got != "К*****, пр. П*****, д. **" {
+		t.Fatalf("expected К*****, пр. П*****, д. **, got %q", got)
+	}
+}
+
+func TestMaskAddressFlatIndex(t *testing.T) {
+	text := "г. Москва, ул. Тверская, д. 1, кв. 10, 123456"
+	s := spanFor(text, text)
+	got := MaskAddress(text, s)
+	want := "г. М*****, ул. Т*******, д. *, кв. **, ******"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
@@ -159,5 +178,122 @@ func TestMaskWord(t *testing.T) {
 	got := MaskWord(text, s)
 	if got != "Р********* Ф********" {
 		t.Fatalf("expected Р********* Ф********, got %q", got)
+	}
+}
+
+func TestMaskPassportKeepsMarkers(t *testing.T) {
+	text := "серия 4509 номер 123456"
+	s := spanFor(text, text)
+	got := MaskPassport(text, s)
+	if got != "серия 45** номер ****56" {
+		t.Fatalf("expected серия 45** номер ****56, got %q", got)
+	}
+}
+
+func TestMaskPassportFallbackStarsDigits(t *testing.T) {
+	text := "паспорт 4509"
+	s := spanFor(text, text)
+	got := MaskPassport(text, s)
+	if got != "паспорт ****" {
+		t.Fatalf("expected паспорт ****, got %q", got)
+	}
+}
+
+func TestMaskCVVKeepsLabel(t *testing.T) {
+	text := "CVV 123"
+	s := spanFor(text, text)
+	got := MaskCVV(text, s)
+	if got != "CVV ***" {
+		t.Fatalf("expected CVV ***, got %q", got)
+	}
+}
+
+func TestMaskPINKeepsLabel(t *testing.T) {
+	text := "пин-код 1234"
+	s := spanFor(text, text)
+	got := MaskPIN(text, s)
+	if got != "пин-код ****" {
+		t.Fatalf("expected пин-код ****, got %q", got)
+	}
+}
+
+func TestMaskDepartmentKeepsLabel(t *testing.T) {
+	text := "код подразделения 770-001"
+	s := spanFor(text, text)
+	got := MaskDepartmentCode(text, s)
+	if got != "код подразделения ***-***" {
+		t.Fatalf("expected код подразделения ***-***, got %q", got)
+	}
+}
+
+func TestMaskDriverLicense(t *testing.T) {
+	text := "в/у 77 АА 123456"
+	s := spanFor(text, text)
+	got := MaskDriverLicense(text, s)
+	if got != "в/у 77** ****56" {
+		t.Fatalf("expected в/у 77** ****56, got %q", got)
+	}
+}
+
+func TestMaskDateText(t *testing.T) {
+	text := "12 января 1990"
+	s := spanFor(text, text)
+	got := MaskDate(text, s)
+	if got != "** ****** 1990" {
+		t.Fatalf("expected ** ****** 1990, got %q", got)
+	}
+}
+
+func TestMaskDateISO(t *testing.T) {
+	text := "1990-01-12"
+	s := spanFor(text, text)
+	got := MaskDate(text, s)
+	if got != "1990-**-**" {
+		t.Fatalf("expected 1990-**-**, got %q", got)
+	}
+}
+
+func TestMaskEmailRune(t *testing.T) {
+	text := "ёлка@mail.ru"
+	s := spanFor(text, text)
+	got := MaskEmail(text, s)
+	if got != "ё***@mail.ru" {
+		t.Fatalf("expected ё***@mail.ru, got %q", got)
+	}
+}
+
+func TestMaskCard18(t *testing.T) {
+	text := "620000000000000001"
+	s := spanFor(text, text)
+	got := MaskCard(text, s)
+	if got != "6200**********0001" {
+		t.Fatalf("expected 6200**********0001, got %q", got)
+	}
+}
+
+func TestMaskPhoneCompact(t *testing.T) {
+	text := "+79123456789"
+	s := spanFor(text, text)
+	got := MaskPhone(text, s)
+	if got != "+7 9** ***-**-89" {
+		t.Fatalf("expected +7 9** ***-**-89, got %q", got)
+	}
+}
+
+func TestMaskPhoneDigitFallback(t *testing.T) {
+	text := "79123456789"
+	s := spanFor(text, text)
+	got := MaskPhone(text, s)
+	if got != "79*******89" {
+		t.Fatalf("expected 79*******89, got %q", got)
+	}
+}
+
+func TestMaskFIOLower(t *testing.T) {
+	text := "иванов иван иванович"
+	s := spanFor(text, text)
+	got := MaskFIO(text, s)
+	if got != "И. И. И." {
+		t.Fatalf("expected И. И. И., got %q", got)
 	}
 }

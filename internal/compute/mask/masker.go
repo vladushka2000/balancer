@@ -7,7 +7,7 @@ import (
 	"pii/internal/models"
 )
 
-// Masker applies masking rules to spans right-to-left.
+// Masker applies per-type partial masks to non-overlapping spans.
 type Masker struct {
 	mode string
 }

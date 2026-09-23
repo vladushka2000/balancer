@@ -32,6 +32,7 @@ var (
 	issueMarkerRe    = regexp.MustCompile(`(?i)выдан|дата выдачи`)
 	postalMarkerRe   = regexp.MustCompile(`(?i)индекс|почтовый код|адрес`)
 	deptMarkerRe     = regexp.MustCompile(`(?i)код подразделения|выдан`)
+	snilsMarkerRe    = regexp.MustCompile(`(?i)снилс`)
 	driverMarkerRe   = regexp.MustCompile(`(?i)в/у|водительск`)
 	fioNearRe        = regexp.MustCompile(`(?i)[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+`)
 )
@@ -117,6 +118,9 @@ func (SNILSDetector) Detect(text string) []models.Span {
 		start, end := m[0], m[1]
 		digits := text[m[2]:m[3]] + text[m[4]:m[5]] + text[m[6]:m[7]] + text[m[8]:m[9]]
 		if !validSNILS(digits) {
+			continue
+		}
+		if !snilsMarkerRe.MatchString(text[max(0, start-40):end]) {
 			continue
 		}
 		spans = append(spans, models.Span{Start: start, End: end, Type: "snils", Confidence: 1, Source: "regex"})

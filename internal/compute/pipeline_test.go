@@ -114,7 +114,7 @@ func TestPipelineLargeText100kTokens(t *testing.T) {
 func TestPipelineCardHolder(t *testing.T) {
 	p := newTestPipeline()
 	masked, types := p.Process("держатель карты Иванов Иван, карта 4111 1111 1111 1111")
-	if !strings.Contains(masked, "И***** И***") {
+	if !strings.Contains(masked, "И. И.") {
 		t.Fatalf("expected card holder masked, got %q", masked)
 	}
 	if !contains(types, "card_holder") {
